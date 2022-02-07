@@ -1,0 +1,31 @@
+---
+
+- include_tasks: vector.yml
+  tags:
+    - run-observability
+
+- include_tasks: aps-proxy.yml
+  tags:
+    - run-observability
+
+- name: create observability directories
+  file:
+    owner: root
+    group: root
+    path: "{{ item }}"
+    state: directory
+    mode: 0750
+  with_items:
+    - "/opt/observability"
+    - "/opt/observability/bin"
+    - "/opt/observability/config"
+
+- name: copy run-observability script
+  ansible.builtin.copy:
+    src: files/run-observability
+    dest: "/opt/observability/bin/run-observability"
+    mode: 0770
+    owner: root
+    group: root
+  tags:
+    - run-observability

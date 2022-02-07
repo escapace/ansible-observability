@@ -1,0 +1,56 @@
+---
+
+- name: install vector
+  dnf:
+    name: "{{ observability_vector_rpm }}"
+    disable_gpg_check: true
+    state: present
+
+- name: create directory for systemd drop-ins
+  file:
+    path: /etc/systemd/system/vector.service.d
+    owner: root
+    group: root
+    state: directory
+    mode: 0755
+
+- name: delete vector example
+  file:
+    path: /etc/vector/examples
+    state: absent
+
+- name: vector systemd drop-in
+  template: src=templates/vector-service-ec2-environment.conf.j2 dest=/etc/systemd/system/vector.service.d/ec2-environment.conf owner=root group=root mode=0644
+  notify:
+    - observability daemon-reload
+
+- name: fix vector service
+  ansible.builtin.lineinfile:
+    path: /usr/lib/systemd/system/vector.service
+    regexp: '^Requires=network-online\.target'
+    line: "Wants=network-online.target"
+    insertafter: '^After=network-online.target'
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - observability daemon-reload
+  tags:
+    - run-observability
+
+- name: fix vector service
+  ansible.builtin.lineinfile:
+    path: /usr/lib/systemd/system/vector.service
+    regexp: '^ExecStart='
+    line: "ExecStart=/usr/bin/vector -qq --config-dir /etc/vector"
+    insertafter: '^ExecStartPre='
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - observability daemon-reload
+  tags:
+    - run-observability
+
+- name: allow vector metadata access
+  template: src=templates/ferm-vector.conf.j2 dest=/etc/ferm/ferm.d/1020-vector.conf owner=root group=root mode=0600
