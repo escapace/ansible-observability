@@ -1,0 +1,4 @@
+---
+# vars file for escapace.observability
+
+observability_vector_rpm: "https://packages.timber.io/vector/{{ observability_vector_version }}/vector-{{ observability_vector_version }}-1.{{ ansible_architecture }}.rpm"

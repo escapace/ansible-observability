@@ -1,0 +1,616 @@
+#!/usr/bin/env bash
+
+set -e
+set -u
+set -o pipefail
+
+umask 027
+
+SCRIPT_NAME=
+SCRIPT_NAME="$(basename "$0")"
+
+declare -A OBSERVABILITY_TAGS
+
+TELEMETRY_ENVIRONMENT_FILE_PATH="/etc/sysconfig/telemetry-environment"
+
+set -o allexport
+source "/etc/sysconfig/ec2-environment"
+set +o allexport
+
+function print_usage {
+  echo
+  echo "Usage: ${SCRIPT_NAME} [OPTIONS]"
+  echo
+  echo "This script is used to configure observability on a AWS EC2 server."
+  echo
+  echo "Options:"
+  echo
+  echo -e "  --aps-workspace-id\t\tAmazon Managed Service for Prometheus Workspace ID."
+  echo -e "  --secrets-bucket-name\t\tAWS S3 secrets bucket name."
+  echo -e "  --enable-kresd\t\tCollect knot-resolver metrics."
+  echo -e "  --enable-consul\t\tCollect consul metrics."
+  echo -e "  --scrape-interval\t\tThe interval between scrapes, in seconds. Optional."
+  echo -e "  --tag\t\t\t\tTag vector logs and metrics. Repeat this option for additional tags. Optional."
+  echo
+}
+
+function log {
+  local -r level="$1"
+  local -r message="$2"
+  local timestamp
+
+  timestamp="$(date +"%Y-%m-%d %H:%M:%S")"
+
+  >&2 echo -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
+}
+
+function log_info {
+  local -r message="$1"
+  log "INFO" "$message"
+}
+
+function log_warn {
+  local -r message="$1"
+  log "WARN" "$message"
+}
+
+function log_error {
+  local -r message="$1"
+  log "ERROR" "$message"
+}
+
+function assert_not_empty {
+  local -r arg_name="$1"
+  local -r arg_value="$2"
+
+  if [[ -z "$arg_value" ]]; then
+    log_error "The value for '$arg_name' cannot be empty"
+    print_usage
+    exit 1
+  fi
+}
+
+function assert_is_installed {
+  local -r name="$1"
+
+  if [[ ! $(command -v "${name}") ]]; then
+    log_error "The binary '$name' is required by this script but is not installed or in the system's PATH."
+    exit 1
+  fi
+}
+
+function parse_tag {
+  local string="${1}"
+  local -r regex="^([a-zA-Z_][a-zA-Z0-9_]*)=([a-zA-Z_:][a-zA-Z0-9_:]*)"
+  local name
+  local value
+
+  if [[ "${string}" =~ ${regex} && "${#BASH_REMATCH[@]}" == "3" ]]
+  then
+    name="${BASH_REMATCH[1]}"
+    value="${BASH_REMATCH[2]}"
+    OBSERVABILITY_TAGS["${name}"]="${value}"
+  else
+    log_error "Unable to parse tag: ${string}"
+  fi
+}
+
+function join {
+  local d=${1-} f=${2-}
+
+  if shift 2; then
+    printf %s "$f" "${@/#/$d}"
+  fi
+}
+
+function get_object_value {
+  local -r secrets_bucket_name="$1"
+  local -r source="$2"
+
+  local -r key="${EC2_INSTANCE_REGION}/${source}"
+
+  log_info "Downloading ${key}"
+
+  aws s3 cp --quiet \
+    "s3://${secrets_bucket_name}/${key}" /dev/stdout || exit 1
+}
+
+function write_vector_configuration {
+  local -r secrets_bucket_name="${1}"
+  local -r cloudwatch_group_name="${2}"
+  local -r scrape_interval="${3}"
+  local -r enable_kresd="${4}"
+  local -r enable_consul="${5}"
+
+  local -r vector_configuration_path="/etc/vector/vector.toml"
+  local -r vector_telemetry_environment_path="/etc/systemd/system/vector.service.d/telemetry-environment.conf"
+
+  local metrics_metadata_tags
+
+  metrics_metadata_tags=$(
+    for name in "${!OBSERVABILITY_TAGS[@]}"
+    do
+      echo ".tags.${name}=\"${OBSERVABILITY_TAGS[$name]:-false}\""
+    done
+  )
+
+  local logs_metadata_tags
+
+  logs_metadata_tags=$(
+    for name in "${!OBSERVABILITY_TAGS[@]}"
+    do
+      echo ".${name}=\"${OBSERVABILITY_TAGS[$name]:-false}\""
+    done
+  )
+
+  local consul_acl_token
+
+  consul_acl_token="$(get_object_value "${secrets_bucket_name}" "telemetry/consul-acl-token-consul-telemetry")"
+
+  local vector_configuration_kresd=""
+  local vector_configuration_consul=""
+  local vector_sources_list_array=("\"metrics-aps-proxy\"" "\"metrics-host\"" "\"metrics-vector\"")
+
+  if [[ "${enable_consul}" == "true" ]]
+  then
+    vector_sources_list_array+=("\"metrics-consul\"")
+
+    vector_configuration_consul=$(cat <<EOF
+
+## CONSUL
+
+[sources.metrics-not-tagged-consul]
+type = "prometheus_scrape"
+endpoints = ["http://127.0.0.1:8500/v1/agent/metrics?format=prometheus"]
+scrape_interval_secs = ${scrape_interval}
+
+[sources.metrics-not-tagged-consul.auth]
+token = "${consul_acl_token}"
+strategy = "bearer"
+
+[transforms.metrics-consul]
+type = "remap"
+inputs = ["metrics-not-tagged-consul"]
+source= '.tags.service = "consul"'
+
+EOF
+)
+  fi
+
+  if [[ "${enable_kresd}" == "true" ]]
+  then
+    vector_sources_list_array+=("\"metrics-kresd\"")
+
+    vector_configuration_kresd=$(cat <<EOF
+
+## KRESD
+
+[sources.metrics-not-tagged-kresd]
+type = "prometheus_scrape"
+endpoints = ["http://127.0.0.1:8453/metrics"]
+scrape_interval_secs = ${scrape_interval}
+
+[transforms.metrics-kresd]
+type = "remap"
+inputs = ["metrics-not-tagged-kresd"]
+source= '.tags.service = "kresd"'
+
+EOF
+)
+  fi
+
+  local vector_sources_list="$(join ", " "${vector_sources_list_array[@]}")"
+
+  local -r vector_configuration=$(cat <<EOF
+healthchecks.require_healthy = false
+
+# JOURNALD
+
+[sources.logs-journald]
+type = "journald"
+current_boot_only = true
+
+## HOST METRICS
+
+[sources.metrics-host]
+type = "host_metrics"
+scrape_interval_secs = ${scrape_interval}
+network.devices.includes = [
+  "eth0"
+]
+
+filesystem.mountpoints.excludes = [
+  "/sys/*",
+  "/proc/*",
+  "/dev/*",
+  "/var/lib/docker/overlay2/*"
+]
+
+filesystem.filesystems.excludes = [
+  "binfmt_misc",
+  "cgroup2",
+  "configfs",
+  "debugfs",
+  "devpts",
+  "devtmpfs",
+  "efivarfs",
+  "fusectl",
+  "hugetlbfs",
+  "mqueue",
+  "nsfs",
+  "proc",
+  "pstore",
+  "securityfs",
+  "selinuxfs",
+  "sysfs",
+  "systemd-1",
+  "tmpfs",
+  "tracefs"
+]
+
+collectors = [
+  #"cgroups",
+  "cpu",
+  # "disk",
+  "filesystem",
+  "load",
+  "host",
+  "memory",
+  # "network"
+]
+
+## VECTOR
+
+[sources.metrics-not-tagged-vector]
+type = "internal_metrics"
+scrape_interval_secs = ${scrape_interval}
+
+[transforms.metrics-vector]
+type = "remap"
+inputs = ["metrics-not-tagged-vector"]
+source= '.tags.service = "vector"'
+
+## APS-PROXY
+
+[sources.metrics-not-tagged-aps-proxy]
+type = "prometheus_scrape"
+endpoints = ["http://127.0.0.1:9901/stats/prometheus"]
+scrape_interval_secs = ${scrape_interval}
+
+[transforms.metrics-aps-proxy]
+type = "remap"
+inputs = ["metrics-not-tagged-aps-proxy"]
+source= '.tags.service = "aps-proxy"'
+
+${vector_configuration_kresd}
+${vector_configuration_consul}
+
+## ---
+
+[transforms.metrics-metadata]
+type = "remap"
+source= '''
+.tags.region = get_env_var!("EC2_INSTANCE_REGION")
+.tags.instance_id = get_env_var!("EC2_INSTANCE_ID")
+.tags.instance_type = get_env_var!("EC2_INSTANCE_TYPE")
+.tags.availability_zone = get_env_var!("EC2_INSTANCE_AVAILABILITY_ZONE")
+del(.tags.host)
+${metrics_metadata_tags}
+'''
+inputs = [${vector_sources_list}]
+
+[transforms.logs-metadata]
+type = "remap"
+source= '''
+.region = get_env_var!("EC2_INSTANCE_REGION")
+.instance_id = get_env_var!("EC2_INSTANCE_ID")
+.instance_type = get_env_var!("EC2_INSTANCE_TYPE")
+.availability_zone = get_env_var!("EC2_INSTANCE_AVAILABILITY_ZONE")
+del(.host)
+${logs_metadata_tags}
+'''
+inputs = [
+  "logs-journald"
+]
+
+## ---
+
+[sinks.metrics-aps-sink]
+type = "prometheus_remote_write"
+endpoint = "http://127.0.0.1:9201/api/v1/remote_write"
+healthcheck = false
+inputs = [
+  "metrics-metadata"
+]
+
+[sinks.logs-cloudwatch-sink]
+type = "aws_cloudwatch_logs"
+create_missing_group = true
+create_missing_stream = true
+group_name = "${cloudwatch_group_name}"
+compression = "gzip"
+region = "${EC2_INSTANCE_REGION}"
+encoding = "json"
+stream_name = "{{ instance_id }}"
+inputs = [
+  "logs-metadata"
+]
+
+EOF
+)
+
+# [sinks.metrics-datadog-sink]
+# type = "datadog_metrics"
+# api_key = "${datadog_api_key}"
+# inputs = [
+#   "metrics-metadata"
+# ]
+
+#[sinks.logs-datadog-sink]
+#type = "datadog_logs"
+#api_key = "${datadog_api_key}"
+#inputs = [
+#  "logs-metadata"
+#]
+
+# [sinks.print]
+# type = "console"
+# encoding.codec = "json"
+# inputs = [
+#   "logs-metadata"
+# ]
+
+  log_info "Writing ${vector_configuration_path}"
+
+  echo -e "${vector_configuration}" > "${vector_configuration_path}"
+
+  chown vector:vector "${vector_configuration_path}"
+  chmod 640 "${vector_configuration_path}"
+
+  mkdir -p "$(dirname "${vector_telemetry_environment_path}")"
+  chown root:root "$(dirname "${vector_telemetry_environment_path}")"
+  chmod 755 "$(dirname "${vector_telemetry_environment_path}")"
+
+  log_info "Writing ${vector_telemetry_environment_path}"
+
+  local -r vector_telemetry_environment=$(cat <<EOF
+[Unit]
+After=consul-online.target
+Wants=consul-online.target
+After=nomad.service
+Wants=nomad.service
+After=kresd.target
+Wants=kresd.target
+
+[Service]
+EnvironmentFile=${TELEMETRY_ENVIRONMENT_FILE_PATH}
+EOF
+)
+
+  echo -e "${vector_telemetry_environment}" > "${vector_telemetry_environment_path}"
+  chown root:root "${vector_telemetry_environment_path}"
+  chmod 644 "${vector_telemetry_environment_path}"
+}
+
+function write_telemetry_environment {
+  local -r telemetry_environment_file_path="${TELEMETRY_ENVIRONMENT_FILE_PATH}"
+
+  local aws_access_key_id
+  local aws_secret_access_key
+
+  aws_access_key_id="$(get_object_value "${secrets_bucket_name}" "telemetry/aws-access-key-id-telemetry")"
+  aws_secret_access_key="$(get_object_value "${secrets_bucket_name}" "telemetry/aws-secret-access-key-telemetry")"
+
+  local -r telemetry_environment=$(cat <<EOF
+AWS_ACCESS_KEY_ID=${aws_access_key_id}
+AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}
+EOF
+)
+
+  log_info "Writing ${telemetry_environment_file_path}"
+
+  echo -e "${telemetry_environment}" > "${telemetry_environment_file_path}"
+  chown root:root  "${telemetry_environment_file_path}"
+  chmod 640 "${telemetry_environment_file_path}"
+
+  setfacl -m u:vector:r "${telemetry_environment_file_path}"
+  setfacl -m u:aps-proxy:r "${telemetry_environment_file_path}"
+}
+
+function write_aps_proxy_configuration {
+  local -r secrets_bucket_name="${1}"
+  local -r workspace_id="${2}"
+  local -r region="${EC2_INSTANCE_REGION}"
+
+  local -r aps_proxy_configuration_path="/opt/aps-proxy/config/default.yml"
+  local -r aps_proxy_service_configuration_path="/etc/systemd/system/aps-proxy.service"
+
+  local -r aps_proxy_configuration=$(cat <<EOF
+admin:
+  address:
+    socket_address: { address: 127.0.0.1, port_value: 9901 }
+
+static_resources:
+  listeners:
+    - address:
+        socket_address:
+          protocol: "TCP"
+          address: "127.0.0.1"
+          port_value: 9201
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                codec_type: AUTO
+                stat_prefix: aps-proxy
+                strip_any_host_port: true
+                route_config:
+                  name: local_route
+                  virtual_hosts:
+                    - name: aps-proxy
+                      domains: ['*']
+                      routes:
+                        - name: aps-proxy
+                          match:
+                            prefix: /
+                          route:
+                            cluster: aps-proxy
+                http_filters:
+                  - name: envoy.filters.http.lua
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                      inline_code: |
+                        -- Called on the request path.
+                        function envoy_on_request(request_handle)
+                          local path = request_handle:headers():get(":path")
+                          request_handle:headers():replace(":path", "/workspaces/${workspace_id}" .. path)
+                        end
+                        -- Called on the response path.
+                        function envoy_on_response(response_handle)
+                        end
+                  - name: envoy.filters.http.aws_request_signing
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.aws_request_signing.v3.AwsRequestSigning
+                      service_name: aps
+                      region: ${region}
+                      host_rewrite: aps-workspaces.${region}.amazonaws.com
+                  - name: envoy.filters.http.router
+                    typed_config: {}
+  clusters:
+    - name: aps-proxy
+      connect_timeout: 0.25s
+      type: LOGICAL_DNS
+      lb_policy: ROUND_ROBIN
+      transport_socket:
+        name: envoy.transport_sockets.tls
+      load_assignment:
+        cluster_name: aps-proxy
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: aps-workspaces.${region}.amazonaws.com
+                      port_value: 443
+EOF
+)
+
+  local -r aps_proxy_service_configuration=$(cat <<EOF
+[Unit]
+Description=Amazon Managed Service for Prometheus Signing Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=aps-proxy
+Group=aps-proxy
+EnvironmentFile=${TELEMETRY_ENVIRONMENT_FILE_PATH}
+ExecStart=/usr/bin/envoy --use-dynamic-base-id --disable-hot-restart --log-level error --config-path "${aps_proxy_configuration_path}"
+KillMode=mixed
+LimitNOFILE=640000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+WantedBy=vector.service
+
+EOF
+)
+
+  log_info "Writing ${aps_proxy_configuration_path}"
+  log_info "Writing ${aps_proxy_service_configuration_path}"
+
+  echo -e "$aps_proxy_configuration" > "$aps_proxy_configuration_path"
+  chown aps-proxy:aps-proxy "${aps_proxy_configuration_path}"
+  chmod 644 "${aps_proxy_configuration_path}"
+
+  echo -e "$aps_proxy_service_configuration" > "$aps_proxy_service_configuration_path"
+  chown root:root "${aps_proxy_service_configuration_path}"
+  chmod 644 "${aps_proxy_service_configuration_path}"
+}
+
+function run {
+  local secrets_bucket_name=""
+  local cloudwatch_group_name=""
+  local aps_workspace_id=""
+  local scrape_interval="60"
+  local enable_kresd="false"
+  local enable_consul="false"
+
+  while [[ $# -gt 0 ]]; do
+    local key="$1"
+
+    case "$key" in
+      --scrape-interval)
+        assert_not_empty "$key" "$2"
+        scrape_interval="$2"
+        shift
+        ;;
+      --secrets-bucket-name)
+        assert_not_empty "$key" "$2"
+        secrets_bucket_name="$2"
+        shift
+        ;;
+      --aps-workspace-id)
+        assert_not_empty "$key" "$2"
+        aps_workspace_id="$2"
+        shift
+        ;;
+      --cloudwatch-group-name)
+        assert_not_empty "$key" "$2"
+        cloudwatch_group_name="$2"
+        shift
+        ;;
+      --tag)
+        assert_not_empty "$key" "$2"
+        parse_tag "${2}"
+        shift
+        ;;
+      --enable-kresd)
+        enable_kresd=true
+        ;;
+      --enable-consul)
+        enable_consul=true
+        ;;
+      --help)
+        print_usage
+        exit
+        ;;
+      *)
+        log_error "Unrecognized argument: $key"
+        print_usage
+        exit 1
+        ;;
+    esac
+
+    shift
+  done
+
+  assert_not_empty "--secrets-bucket-name" "${secrets_bucket_name}"
+  assert_not_empty "--cloudwatch-group-name" "${cloudwatch_group_name}"
+  assert_not_empty "--aps-workspace-id" "${aps_workspace_id}"
+
+  if ! [[ "${scrape_interval}" =~ ^[0-9]+$ ]]
+  then
+    log_error "--scrape-interval must be a number."
+    print_usage
+    exit 1
+  fi
+
+  assert_is_installed "systemctl"
+  assert_is_installed "jq"
+  assert_is_installed "awk"
+
+  write_telemetry_environment
+  write_aps_proxy_configuration "${secrets_bucket_name}" "${aps_workspace_id}"
+
+  write_vector_configuration "${secrets_bucket_name}" "${cloudwatch_group_name}" "${scrape_interval}" "${enable_kresd}" "${enable_consul}"
+
+  systemctl daemon-reload
+  systemctl enable vector aps-proxy
+  systemctl restart aps-proxy vector
+}
+
+run "$@"
