@@ -4,7 +4,7 @@
   tags:
     - run-observability
 
-- include_tasks: aps-proxy.yml
+- include_tasks: amp-proxy.yml
   tags:
     - run-observability
 

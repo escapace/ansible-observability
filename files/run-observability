@@ -25,7 +25,7 @@ function print_usage {
   echo
   echo "Options:"
   echo
-  echo -e "  --aps-workspace-id\t\tAmazon Managed Service for Prometheus Workspace ID."
+  echo -e "  --amp-workspace-id\t\tAmazon Managed Service for Prometheus Workspace ID."
   echo -e "  --secrets-bucket-name\t\tAWS S3 secrets bucket name."
   echo -e "  --enable-kresd\t\tCollect knot-resolver metrics."
   echo -e "  --enable-consul\t\tCollect consul metrics."
@@ -121,6 +121,7 @@ function write_vector_configuration {
   local -r scrape_interval="${3}"
   local -r enable_kresd="${4}"
   local -r enable_consul="${5}"
+  local -r enable_nomad="${6}"
 
   local -r vector_configuration_path="/etc/vector/vector.toml"
   local -r vector_telemetry_environment_path="/etc/systemd/system/vector.service.d/telemetry-environment.conf"
@@ -149,7 +150,8 @@ function write_vector_configuration {
 
   local vector_configuration_kresd=""
   local vector_configuration_consul=""
-  local vector_sources_list_array=("\"metrics-aps-proxy\"" "\"metrics-host\"" "\"metrics-vector\"")
+  local vector_configuration_nomad=""
+  local vector_sources_list_array=("\"metrics-amp-proxy\"" "\"metrics-host\"" "\"metrics-vector\"")
 
   if [[ "${enable_consul}" == "true" ]]
   then
@@ -194,6 +196,28 @@ scrape_interval_secs = ${scrape_interval}
 type = "remap"
 inputs = ["metrics-not-tagged-kresd"]
 source= '.tags.service = "kresd"'
+
+EOF
+)
+  fi
+
+  if [[ "${enable_nomad}" == "true" ]]
+  then
+    vector_sources_list_array+=("\"metrics-nomad\"")
+
+    vector_configuration_nomad=$(cat <<EOF
+
+## NOMAD
+
+[sources.metrics-not-tagged-nomad]
+type = "prometheus_scrape"
+endpoints = ["https://127.0.0.1:4646/v1/metrics?format=prometheus"]
+scrape_interval_secs = ${scrape_interval}
+
+[transforms.metrics-nomad]
+type = "remap"
+inputs = ["metrics-not-tagged-nomad"]
+source= '.tags.service = "nomad"'
 
 EOF
 )
@@ -270,20 +294,21 @@ type = "remap"
 inputs = ["metrics-not-tagged-vector"]
 source= '.tags.service = "vector"'
 
-## APS-PROXY
+## AMP-PROXY
 
-[sources.metrics-not-tagged-aps-proxy]
+[sources.metrics-not-tagged-amp-proxy]
 type = "prometheus_scrape"
 endpoints = ["http://127.0.0.1:9901/stats/prometheus"]
 scrape_interval_secs = ${scrape_interval}
 
-[transforms.metrics-aps-proxy]
+[transforms.metrics-amp-proxy]
 type = "remap"
-inputs = ["metrics-not-tagged-aps-proxy"]
-source= '.tags.service = "aps-proxy"'
+inputs = ["metrics-not-tagged-amp-proxy"]
+source= '.tags.service = "amp-proxy"'
 
 ${vector_configuration_kresd}
 ${vector_configuration_consul}
+${vector_configuration_nomad}
 
 ## ---
 
@@ -315,7 +340,7 @@ inputs = [
 
 ## ---
 
-[sinks.metrics-aps-sink]
+[sinks.metrics-amp-sink]
 type = "prometheus_remote_write"
 endpoint = "http://127.0.0.1:9201/api/v1/remote_write"
 healthcheck = false
@@ -414,18 +439,18 @@ EOF
   chmod 640 "${telemetry_environment_file_path}"
 
   setfacl -m u:vector:r "${telemetry_environment_file_path}"
-  setfacl -m u:aps-proxy:r "${telemetry_environment_file_path}"
+  setfacl -m u:amp-proxy:r "${telemetry_environment_file_path}"
 }
 
-function write_aps_proxy_configuration {
+function write_amp_proxy_configuration {
   local -r secrets_bucket_name="${1}"
   local -r workspace_id="${2}"
   local -r region="${EC2_INSTANCE_REGION}"
 
-  local -r aps_proxy_configuration_path="/opt/aps-proxy/config/default.yml"
-  local -r aps_proxy_service_configuration_path="/etc/systemd/system/aps-proxy.service"
+  local -r amp_proxy_configuration_path="/opt/amp-proxy/config/default.yml"
+  local -r amp_proxy_service_configuration_path="/etc/systemd/system/amp-proxy.service"
 
-  local -r aps_proxy_configuration=$(cat <<EOF
+  local -r amp_proxy_configuration=$(cat <<EOF
 admin:
   address:
     socket_address: { address: 127.0.0.1, port_value: 9901 }
@@ -443,19 +468,19 @@ static_resources:
               typed_config:
                 "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
                 codec_type: AUTO
-                stat_prefix: aps-proxy
+                stat_prefix: amp-proxy
                 strip_any_host_port: true
                 route_config:
                   name: local_route
                   virtual_hosts:
-                    - name: aps-proxy
+                    - name: amp-proxy
                       domains: ['*']
                       routes:
-                        - name: aps-proxy
+                        - name: amp-proxy
                           match:
                             prefix: /
                           route:
-                            cluster: aps-proxy
+                            cluster: amp-proxy
                 http_filters:
                   - name: envoy.filters.http.lua
                     typed_config:
@@ -478,14 +503,14 @@ static_resources:
                   - name: envoy.filters.http.router
                     typed_config: {}
   clusters:
-    - name: aps-proxy
+    - name: amp-proxy
       connect_timeout: 0.25s
       type: LOGICAL_DNS
       lb_policy: ROUND_ROBIN
       transport_socket:
         name: envoy.transport_sockets.tls
       load_assignment:
-        cluster_name: aps-proxy
+        cluster_name: amp-proxy
         endpoints:
           - lb_endpoints:
               - endpoint:
@@ -496,17 +521,17 @@ static_resources:
 EOF
 )
 
-  local -r aps_proxy_service_configuration=$(cat <<EOF
+  local -r amp_proxy_service_configuration=$(cat <<EOF
 [Unit]
 Description=Amazon Managed Service for Prometheus Signing Proxy
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=aps-proxy
-Group=aps-proxy
+User=amp-proxy
+Group=amp-proxy
 EnvironmentFile=${TELEMETRY_ENVIRONMENT_FILE_PATH}
-ExecStart=/usr/bin/envoy --use-dynamic-base-id --disable-hot-restart --log-level error --config-path "${aps_proxy_configuration_path}"
+ExecStart=/usr/bin/envoy --use-dynamic-base-id --disable-hot-restart --log-level error --config-path "${amp_proxy_configuration_path}"
 KillMode=mixed
 LimitNOFILE=640000
 Restart=always
@@ -519,25 +544,26 @@ WantedBy=vector.service
 EOF
 )
 
-  log_info "Writing ${aps_proxy_configuration_path}"
-  log_info "Writing ${aps_proxy_service_configuration_path}"
+  log_info "Writing ${amp_proxy_configuration_path}"
+  log_info "Writing ${amp_proxy_service_configuration_path}"
 
-  echo -e "$aps_proxy_configuration" > "$aps_proxy_configuration_path"
-  chown aps-proxy:aps-proxy "${aps_proxy_configuration_path}"
-  chmod 644 "${aps_proxy_configuration_path}"
+  echo -e "$amp_proxy_configuration" > "$amp_proxy_configuration_path"
+  chown amp-proxy:amp-proxy "${amp_proxy_configuration_path}"
+  chmod 644 "${amp_proxy_configuration_path}"
 
-  echo -e "$aps_proxy_service_configuration" > "$aps_proxy_service_configuration_path"
-  chown root:root "${aps_proxy_service_configuration_path}"
-  chmod 644 "${aps_proxy_service_configuration_path}"
+  echo -e "$amp_proxy_service_configuration" > "$amp_proxy_service_configuration_path"
+  chown root:root "${amp_proxy_service_configuration_path}"
+  chmod 644 "${amp_proxy_service_configuration_path}"
 }
 
 function run {
   local secrets_bucket_name=""
   local cloudwatch_group_name=""
-  local aps_workspace_id=""
+  local amp_workspace_id=""
   local scrape_interval="60"
   local enable_kresd="false"
   local enable_consul="false"
+  local enable_nomad="false"
 
   while [[ $# -gt 0 ]]; do
     local key="$1"
@@ -553,9 +579,9 @@ function run {
         secrets_bucket_name="$2"
         shift
         ;;
-      --aps-workspace-id)
+      --amp-workspace-id)
         assert_not_empty "$key" "$2"
-        aps_workspace_id="$2"
+        amp_workspace_id="$2"
         shift
         ;;
       --cloudwatch-group-name)
@@ -574,6 +600,9 @@ function run {
       --enable-consul)
         enable_consul=true
         ;;
+      --enable-nomad)
+        enable_nomad=true
+        ;;
       --help)
         print_usage
         exit
@@ -590,7 +619,7 @@ function run {
 
   assert_not_empty "--secrets-bucket-name" "${secrets_bucket_name}"
   assert_not_empty "--cloudwatch-group-name" "${cloudwatch_group_name}"
-  assert_not_empty "--aps-workspace-id" "${aps_workspace_id}"
+  assert_not_empty "--amp-workspace-id" "${amp_workspace_id}"
 
   if ! [[ "${scrape_interval}" =~ ^[0-9]+$ ]]
   then
@@ -604,13 +633,13 @@ function run {
   assert_is_installed "awk"
 
   write_telemetry_environment
-  write_aps_proxy_configuration "${secrets_bucket_name}" "${aps_workspace_id}"
+  write_amp_proxy_configuration "${secrets_bucket_name}" "${amp_workspace_id}"
 
-  write_vector_configuration "${secrets_bucket_name}" "${cloudwatch_group_name}" "${scrape_interval}" "${enable_kresd}" "${enable_consul}"
+  write_vector_configuration "${secrets_bucket_name}" "${cloudwatch_group_name}" "${scrape_interval}" "${enable_kresd}" "${enable_consul}" "${enable_nomad}"
 
   systemctl daemon-reload
-  systemctl enable vector aps-proxy
-  systemctl restart aps-proxy vector
+  systemctl enable vector amp-proxy
+  systemctl restart amp-proxy vector
 }
 
 run "$@"
