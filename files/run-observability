@@ -13,9 +13,55 @@ declare -A OBSERVABILITY_TAGS
 
 TELEMETRY_ENVIRONMENT_FILE_PATH="/etc/sysconfig/telemetry-environment"
 
-set -o allexport
-source "/etc/sysconfig/ec2-environment"
-set +o allexport
+function wrap {
+ local strings="${1}"
+
+ local length
+ local cols
+ local width
+
+ length="$(echo -n "${strings}" | awk -F '|' '{print $1}' | awk '{ print length }' | sort -n | tail -1)"
+ cols="$(tput cols)"
+
+ if [[ $(( (cols - 4) / length )) -ge 2 ]]
+ then
+  if [[ $((cols - length - 4)) -ge 80 ]]
+  then
+    width=80
+  else
+    width=$((cols - length - 4))
+  fi
+
+   echo -e "${strings}" | \
+    fold -s -w "${width}" | \
+    sed -e "/--/! s|^| \||g" | \
+    column -t -s '|' | \
+    sed  's/^/  /'
+ else
+    local lines
+    local line
+    readarray -t lines <<< "${strings}"
+    local option
+    local description
+
+    if [[ "${cols}" -ge 80 ]]
+    then
+      width="78"
+    else
+      width=$((cols - 2))
+    fi
+
+    for line in "${lines[@]}"; do
+      option="${line%%|*}"
+      description=${line#*|}
+
+      echo "${option}"
+      echo
+      echo "${description}" | fold -s -w "${width}" |  sed  's/^/  /'
+      echo
+    done
+ fi
+}
 
 function print_usage {
   echo
@@ -25,12 +71,16 @@ function print_usage {
   echo
   echo "Options:"
   echo
-  echo -e "  --amp-workspace-id\t\tAmazon Managed Service for Prometheus Workspace ID."
-  echo -e "  --secrets-bucket-name\t\tAWS S3 secrets bucket name."
-  echo -e "  --enable-kresd\t\tCollect knot-resolver metrics."
-  echo -e "  --enable-consul\t\tCollect consul metrics."
-  echo -e "  --scrape-interval\t\tThe interval between scrapes, in seconds. Optional."
-  echo -e "  --tag\t\t\t\tTag vector logs and metrics. Repeat this option for additional tags. Optional."
+  wrap "$(
+    echo -e "--amp-workspace-id|Amazon Managed Service for Prometheus Workspace ID."
+    echo -e "--cloudwatch-group-name|CloudWatch log group name."
+    echo -e "--enable-consul|Collect consul metrics."
+    echo -e "--enable-kresd|Collect knot resolver metrics."
+    echo -e "--enable-nomad|Collect nomad metrics."
+    echo -e "--scrape-interval|The interval between scrapes, in seconds."
+    echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
+    echo -e "--tag|Tag vector logs and metrics. Repeat this option for additional tags."
+  )"
   echo
 }
 
@@ -557,6 +607,19 @@ EOF
 }
 
 function run {
+  if [[ ! -f "/etc/sysconfig/ec2-environment" ]]
+  then
+    print_usage
+
+    log_error "/etc/sysconfig/ec2-environment: No such file"
+
+    exit 1
+  fi
+
+  set -o allexport
+  source "/etc/sysconfig/ec2-environment"
+  set +o allexport
+
   local secrets_bucket_name=""
   local cloudwatch_group_name=""
   local amp_workspace_id=""
