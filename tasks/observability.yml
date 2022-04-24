@@ -9,7 +9,7 @@
     - run-observability
 
 - name: create observability directories
-  file:
+  ansible.builtin.file:
     owner: root
     group: root
     path: "{{ item }}"
