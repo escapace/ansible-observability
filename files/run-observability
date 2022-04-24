@@ -223,7 +223,7 @@ strategy = "bearer"
 [transforms.metrics-consul]
 type = "remap"
 inputs = ["metrics-not-tagged-consul"]
-source= '.tags.service = "consul"'
+source = '.tags.service = "consul"'
 
 EOF
 )
@@ -245,7 +245,7 @@ scrape_interval_secs = ${scrape_interval}
 [transforms.metrics-kresd]
 type = "remap"
 inputs = ["metrics-not-tagged-kresd"]
-source= '.tags.service = "kresd"'
+source = '.tags.service = "kresd"'
 
 EOF
 )
@@ -267,7 +267,7 @@ scrape_interval_secs = ${scrape_interval}
 [transforms.metrics-nomad]
 type = "remap"
 inputs = ["metrics-not-tagged-nomad"]
-source= '.tags.service = "nomad"'
+source = '.tags.service = "nomad"'
 
 EOF
 )
@@ -342,7 +342,7 @@ scrape_interval_secs = ${scrape_interval}
 [transforms.metrics-vector]
 type = "remap"
 inputs = ["metrics-not-tagged-vector"]
-source= '.tags.service = "vector"'
+source = '.tags.service = "vector"'
 
 ## AMP-PROXY
 
@@ -354,7 +354,7 @@ scrape_interval_secs = ${scrape_interval}
 [transforms.metrics-amp-proxy]
 type = "remap"
 inputs = ["metrics-not-tagged-amp-proxy"]
-source= '.tags.service = "amp-proxy"'
+source = '.tags.service = "amp-proxy"'
 
 ${vector_configuration_kresd}
 ${vector_configuration_consul}
@@ -364,7 +364,7 @@ ${vector_configuration_nomad}
 
 [transforms.metrics-metadata]
 type = "remap"
-source= '''
+source = '''
 .tags.region = get_env_var!("EC2_INSTANCE_REGION")
 .tags.instance_id = get_env_var!("EC2_INSTANCE_ID")
 .tags.instance_type = get_env_var!("EC2_INSTANCE_TYPE")
@@ -376,7 +376,7 @@ inputs = [${vector_sources_list}]
 
 [transforms.logs-metadata]
 type = "remap"
-source= '''
+source = '''
 .region = get_env_var!("EC2_INSTANCE_REGION")
 .instance_id = get_env_var!("EC2_INSTANCE_ID")
 .instance_type = get_env_var!("EC2_INSTANCE_TYPE")
