@@ -14,7 +14,7 @@
     create_home: false
 
 - name: create amp-proxy directories
-  file:
+  ansible.builtin.file:
     owner: amp-proxy
     group: amp-proxy
     path: "{{ item }}"

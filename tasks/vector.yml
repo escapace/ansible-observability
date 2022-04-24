@@ -1,13 +1,13 @@
 ---
 
 - name: install vector
-  dnf:
+  ansible.builtin.dnf:
     name: "{{ observability_vector_rpm }}"
     disable_gpg_check: true
     state: present
 
 - name: create directory for systemd drop-ins
-  file:
+  ansible.builtin.file:
     path: /etc/systemd/system/vector.service.d
     owner: root
     group: root
@@ -15,12 +15,12 @@
     mode: 0755
 
 - name: delete vector example
-  file:
+  ansible.builtin.file:
     path: /etc/vector/examples
     state: absent
 
 - name: vector systemd drop-in
-  template: src=templates/vector-service-ec2-environment.conf.j2 dest=/etc/systemd/system/vector.service.d/ec2-environment.conf owner=root group=root mode=0644
+  ansible.builtin.template: src=templates/vector-service-ec2-environment.conf.j2 dest=/etc/systemd/system/vector.service.d/ec2-environment.conf owner=root group=root mode=0644
   notify:
     - observability daemon-reload
 
@@ -53,4 +53,4 @@
     - run-observability
 
 - name: allow vector metadata access
-  template: src=templates/ferm-vector.conf.j2 dest=/etc/ferm/ferm.d/1020-vector.conf owner=root group=root mode=0600
+  ansible.builtin.template: src=templates/ferm-vector.conf.j2 dest=/etc/ferm/ferm.d/1020-vector.conf owner=root group=root mode=0600
