@@ -1,6 +1,7 @@
 ---
 
-- ansible.posix.sysctl:
+- name: set kernel.perf_event_paranoid
+  ansible.posix.sysctl:
     name: kernel.perf_event_paranoid
     value: '2'
     state: present
@@ -82,7 +83,7 @@
       ansible.builtin.copy:
         src: "/opt/node-exporter/bin/node_exporter"
         dest: "/opt/node-exporter/bin/node-exporter"
-        remote_src: yes
+        remote_src: true
         owner: node-exporter
         group: node-exporter
         mode: 0755
