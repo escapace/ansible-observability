@@ -2,3 +2,17 @@
 # vars file for escapace.observability
 
 observability_vector_rpm: "https://packages.timber.io/vector/{{ observability_vector_version }}/vector-{{ observability_vector_version }}-1.{{ ansible_architecture }}.rpm"
+
+observability_architecture_map:
+  amd64: amd64
+  x86_64: amd64
+  armv7l: arm
+  aarch64: arm64
+  32-bit: "386"
+  64-bit: amd64
+
+observability_architecture: "{{ observability_architecture_map[ansible_architecture] }}"
+
+observability_node_exporter_archive: "node_exporter-{{ observability_node_exporter_version }}.linux-{{ observability_architecture }}.tar.gz"
+observability_node_exporter_archive_url: "https://github.com/prometheus/node_exporter/releases/download/v{{ observability_node_exporter_version }}/{{ observability_node_exporter_archive }}"
+observability_node_exporter_archive_checksum_url: "https://github.com/prometheus/node_exporter/releases/download/v{{ observability_node_exporter_version }}/sha256sums.txt"

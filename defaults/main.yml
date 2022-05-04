@@ -2,5 +2,6 @@
 # defaults file for escapace.observability
 
 observability_vector_version: 0.21.1
+observability_node_exporter_version: 1.3.1
 
 observability_role_debug: false
