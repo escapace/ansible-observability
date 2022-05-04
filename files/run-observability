@@ -201,7 +201,7 @@ function write_vector_configuration {
   local vector_configuration_kresd=""
   local vector_configuration_consul=""
   local vector_configuration_nomad=""
-  local vector_sources_list_array=("\"metrics-amp-proxy\"" "\"metrics-host\"" "\"metrics-vector\"")
+  local vector_sources_list_array=("\"metrics-amp-proxy\"" "\"metrics-node-exporter\"" "\"metrics-vector\"")
 
   if [[ "${enable_consul}" == "true" ]]
   then
@@ -273,7 +273,8 @@ EOF
 )
   fi
 
-  local vector_sources_list="$(join ", " "${vector_sources_list_array[@]}")"
+  local vector_sources_list
+  vector_sources_list="$(join ", " "${vector_sources_list_array[@]}")"
 
   local -r vector_configuration=$(cat <<EOF
 healthchecks.require_healthy = false
@@ -284,54 +285,17 @@ healthchecks.require_healthy = false
 type = "journald"
 current_boot_only = true
 
-## HOST METRICS
+## NODE EXPORTER
 
-[sources.metrics-host]
-type = "host_metrics"
+[sources.metrics-not-tagged-node-exporter]
+type = "prometheus_scrape"
+endpoints = ["http://127.0.0.1:9100/metrics"]
 scrape_interval_secs = ${scrape_interval}
-network.devices.includes = [
-  "eth0"
-]
 
-filesystem.mountpoints.excludes = [
-  "/sys/*",
-  "/proc/*",
-  "/dev/*",
-  "/var/lib/docker/overlay2/*"
-]
-
-filesystem.filesystems.excludes = [
-  "binfmt_misc",
-  "cgroup2",
-  "configfs",
-  "debugfs",
-  "devpts",
-  "devtmpfs",
-  "efivarfs",
-  "fusectl",
-  "hugetlbfs",
-  "mqueue",
-  "nsfs",
-  "proc",
-  "pstore",
-  "securityfs",
-  "selinuxfs",
-  "sysfs",
-  "systemd-1",
-  "tmpfs",
-  "tracefs"
-]
-
-collectors = [
-  #"cgroups",
-  "cpu",
-  # "disk",
-  "filesystem",
-  "load",
-  "host",
-  "memory",
-  # "network"
-]
+[transforms.metrics-node-exporter]
+type = "remap"
+inputs = ["metrics-not-tagged-node-exporter"]
+source = '.tags.service = "node-exporter"'
 
 ## VECTOR
 
@@ -414,27 +378,6 @@ inputs = [
 EOF
 )
 
-# [sinks.metrics-datadog-sink]
-# type = "datadog_metrics"
-# api_key = "${datadog_api_key}"
-# inputs = [
-#   "metrics-metadata"
-# ]
-
-#[sinks.logs-datadog-sink]
-#type = "datadog_logs"
-#api_key = "${datadog_api_key}"
-#inputs = [
-#  "logs-metadata"
-#]
-
-# [sinks.print]
-# type = "console"
-# encoding.codec = "json"
-# inputs = [
-#   "logs-metadata"
-# ]
-
   log_info "Writing ${vector_configuration_path}"
 
   echo -e "${vector_configuration}" > "${vector_configuration_path}"
@@ -456,6 +399,8 @@ After=nomad.service
 Wants=nomad.service
 After=kresd.target
 Wants=kresd.target
+After=node-exporter.service
+Wants=node-exporter.service
 
 [Service]
 EnvironmentFile=${TELEMETRY_ENVIRONMENT_FILE_PATH}
@@ -606,6 +551,44 @@ EOF
   chmod 644 "${amp_proxy_service_configuration_path}"
 }
 
+function configure_node_exporter {
+  local node_exporter_options_path="/opt/node-exporter/config/options"
+
+  local node_exporter_options_array=(
+    '--collector.conntrack'
+    '--collector.cpu'
+    '--collector.disable-defaults'
+    '--collector.diskstats'
+    '--collector.diskstats.ignored-devices="^(dm-|ram|loop|fd|(h|s|v|xv)d[a-z]|nvme[0-9]+n[0-9]+p)[0-9]+\$"'
+    '--collector.entropy'
+    '--collector.filesystem'
+    '--collector.filesystem.fs-types-exclude="^(tmpfs|systemd-1|efivarfs|autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)\$"'
+    '--collector.filesystem.mount-points-exclude="^/(dev|proc|run/credentials/.+|sys|var/lib/docker/.+)(\$|/)"'
+    '--collector.loadavg'
+    '--collector.meminfo'
+    '--collector.netclass'
+    '--collector.netclass.ignored-devices="^(nomad|docker.+|lo|dummy.+|veth.+)\$"'
+    '--collector.netdev'
+    '--collector.netdev.device-exclude="^(nomad|docker.+|lo|dummy.+|veth.+)\$"'
+    '--collector.pressure'
+    '--collector.processes'
+    '--collector.schedstat'
+    '--collector.stat'
+    '--collector.systemd'
+    '--collector.systemd.unit-include="(nomad.service|consul.service,amp-proxy.service|vector.service|kresd@.+|consul-terraform-sync.service|sshd.service)"'
+    '--collector.timex'
+    '--collector.vmstat'
+    '--web.listen-address="127.0.0.1:9100"'
+  )
+
+  local node_exporter_options
+  node_exporter_options="OPTIONS=$(join " " "${node_exporter_options_array[@]}")"
+
+  echo -e "$node_exporter_options" > "${node_exporter_options_path}"
+  chown node-exporter:node-exporter "${node_exporter_options_path}"
+  chmod 640 "${node_exporter_options_path}"
+}
+
 function run {
   if [[ ! -f "/etc/sysconfig/ec2-environment" ]]
   then
@@ -695,14 +678,15 @@ function run {
   assert_is_installed "jq"
   assert_is_installed "awk"
 
+  configure_node_exporter
   write_telemetry_environment
   write_amp_proxy_configuration "${secrets_bucket_name}" "${amp_workspace_id}"
 
   write_vector_configuration "${secrets_bucket_name}" "${cloudwatch_group_name}" "${scrape_interval}" "${enable_kresd}" "${enable_consul}" "${enable_nomad}"
 
   systemctl daemon-reload
-  systemctl enable vector amp-proxy
-  systemctl restart amp-proxy vector
+  systemctl enable node-exporter vector amp-proxy
+  systemctl restart node-exporter amp-proxy vector
 }
 
 run "$@"

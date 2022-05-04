@@ -1,0 +1,17 @@
+[Unit]
+Description=Prometheus exporter for hardware and OS metrics
+After=network-online.target
+Wants=network-online.target
+After=nss-lookup.target
+Wants=nss-lookup.target
+
+[Service]
+User=node-exporter
+Group=node-exporter
+EnvironmentFile=-/opt/node-exporter/config/options
+ExecStart=/opt/node-exporter/bin/node-exporter $OPTIONS
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

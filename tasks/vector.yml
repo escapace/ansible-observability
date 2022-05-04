@@ -35,8 +35,6 @@
     mode: '0644'
   notify:
     - observability daemon-reload
-  tags:
-    - run-observability
 
 - name: fix vector service
   ansible.builtin.lineinfile:
@@ -49,8 +47,18 @@
     mode: '0644'
   notify:
     - observability daemon-reload
-  tags:
-    - run-observability
+
+- name: fix vector service
+  ansible.builtin.lineinfile:
+    path: /usr/lib/systemd/system/vector.service
+    regexp: '^Restart='
+    line: "Restart=on-failure"
+    insertafter: '^ExecStartPre='
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - observability daemon-reload
 
 - name: allow vector metadata access
   ansible.builtin.template: src=templates/ferm-vector.conf.j2 dest=/etc/ferm/ferm.d/1020-vector.conf owner=root group=root mode=0600
