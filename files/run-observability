@@ -215,7 +215,7 @@ function write_vector_configuration {
 
 [sources.metrics-not-tagged-consul]
 type = "prometheus_scrape"
-endpoints = ["http://127.0.0.1:8500/v1/agent/metrics?format=prometheus"]
+endpoints = ["http://[::1]:8500/v1/agent/metrics?format=prometheus"]
 scrape_interval_secs = ${scrape_interval}
 
 [sources.metrics-not-tagged-consul.auth]
@@ -241,7 +241,7 @@ EOF
 
 [sources.metrics-not-tagged-kresd]
 type = "prometheus_scrape"
-endpoints = ["http://127.0.0.1:8453/metrics"]
+endpoints = ["http://[::1]:8453/metrics"]
 scrape_interval_secs = ${scrape_interval}
 
 [transforms.metrics-kresd]
@@ -263,7 +263,7 @@ EOF
 
 [sources.metrics-not-tagged-nomad]
 type = "prometheus_scrape"
-endpoints = ["https://127.0.0.1:4646/v1/metrics?format=prometheus"]
+endpoints = ["https://[::1]:4646/v1/metrics?format=prometheus"]
 scrape_interval_secs = ${scrape_interval}
 
 [transforms.metrics-nomad]
@@ -285,7 +285,7 @@ EOF
 
 [sources.metrics-not-tagged-cloudflared]
 type = "prometheus_scrape"
-endpoints = ["http://127.0.0.1:9301/metrics"]
+endpoints = ["http://[::1]:9301/metrics"]
 scrape_interval_secs = ${scrape_interval}
 
 [transforms.metrics-cloudflared]
@@ -313,7 +313,7 @@ current_boot_only = true
 
 [sources.metrics-not-tagged-node-exporter]
 type = "prometheus_scrape"
-endpoints = ["http://127.0.0.1:9100/metrics"]
+endpoints = ["http://[::1]:9100/metrics"]
 scrape_interval_secs = ${scrape_interval}
 
 [transforms.metrics-node-exporter]
@@ -336,7 +336,7 @@ source = '.tags.service = "vector"'
 
 [sources.metrics-not-tagged-amp-proxy]
 type = "prometheus_scrape"
-endpoints = ["http://127.0.0.1:9901/stats/prometheus"]
+endpoints = ["http://[::1]:9901/stats/prometheus"]
 scrape_interval_secs = ${scrape_interval}
 
 [transforms.metrics-amp-proxy]
@@ -381,7 +381,7 @@ inputs = [
 
 [sinks.metrics-amp-sink]
 type = "prometheus_remote_write"
-endpoint = "http://127.0.0.1:9201/api/v1/remote_write"
+endpoint = "http://[::1]:9201/api/v1/remote_write"
 healthcheck = false
 inputs = [
   "metrics-metadata"
@@ -473,14 +473,14 @@ function write_amp_proxy_configuration {
   local -r amp_proxy_configuration=$(cat <<EOF
 admin:
   address:
-    socket_address: { address: 127.0.0.1, port_value: 9901 }
+    socket_address: { address: "::1", port_value: 9901 }
 
 static_resources:
   listeners:
     - address:
         socket_address:
           protocol: "TCP"
-          address: "127.0.0.1"
+          address: "::1"
           port_value: 9201
       filter_chains:
         - filters:
@@ -603,7 +603,7 @@ function configure_node_exporter {
     '--collector.systemd.unit-include="(nomad.service|consul.service,amp-proxy.service|vector.service|kresd@.+|consul-terraform-sync.service|sshd.service)"'
     '--collector.timex'
     '--collector.vmstat'
-    '--web.listen-address="127.0.0.1:9100"'
+    '--web.listen-address="[::1]:9100"'
   )
 
   local node_exporter_options
