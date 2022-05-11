@@ -172,6 +172,7 @@ function write_vector_configuration {
   local -r enable_kresd="${4}"
   local -r enable_consul="${5}"
   local -r enable_nomad="${6}"
+  local -r enable_cloudflared="${7}"
 
   local -r vector_configuration_path="/etc/vector/vector.toml"
   local -r vector_telemetry_environment_path="/etc/systemd/system/vector.service.d/telemetry-environment.conf"
@@ -201,6 +202,7 @@ function write_vector_configuration {
   local vector_configuration_kresd=""
   local vector_configuration_consul=""
   local vector_configuration_nomad=""
+  local vector_configuration_cloudflared=""
   local vector_sources_list_array=("\"metrics-amp-proxy\"" "\"metrics-node-exporter\"" "\"metrics-vector\"")
 
   if [[ "${enable_consul}" == "true" ]]
@@ -273,6 +275,28 @@ EOF
 )
   fi
 
+  if [[ "${enable_cloudflared}" == "true" ]]
+  then
+    vector_sources_list_array+=("\"metrics-cloudflared\"")
+
+    vector_configuration_cloudflared=$(cat <<EOF
+
+## cloudflared
+
+[sources.metrics-not-tagged-cloudflared]
+type = "prometheus_scrape"
+endpoints = ["http://127.0.0.1:9301/metrics"]
+scrape_interval_secs = ${scrape_interval}
+
+[transforms.metrics-cloudflared]
+type = "remap"
+inputs = ["metrics-not-tagged-cloudflared"]
+source = '.tags.service = "cloudflared"'
+
+EOF
+)
+  fi
+
   local vector_sources_list
   vector_sources_list="$(join ", " "${vector_sources_list_array[@]}")"
 
@@ -323,6 +347,7 @@ source = '.tags.service = "amp-proxy"'
 ${vector_configuration_kresd}
 ${vector_configuration_consul}
 ${vector_configuration_nomad}
+${vector_configuration_cloudflared}
 
 ## ---
 
@@ -610,6 +635,7 @@ function run {
   local enable_kresd="false"
   local enable_consul="false"
   local enable_nomad="false"
+  local enable_cloudflared="false"
 
   while [[ $# -gt 0 ]]; do
     local key="$1"
@@ -649,6 +675,9 @@ function run {
       --enable-nomad)
         enable_nomad=true
         ;;
+      --enable-cloudflared)
+        enable_cloudflared=true
+        ;;
       --help)
         print_usage
         exit
@@ -682,7 +711,7 @@ function run {
   write_telemetry_environment
   write_amp_proxy_configuration "${secrets_bucket_name}" "${amp_workspace_id}"
 
-  write_vector_configuration "${secrets_bucket_name}" "${cloudwatch_group_name}" "${scrape_interval}" "${enable_kresd}" "${enable_consul}" "${enable_nomad}"
+  write_vector_configuration "${secrets_bucket_name}" "${cloudwatch_group_name}" "${scrape_interval}" "${enable_kresd}" "${enable_consul}" "${enable_nomad}" "${enable_cloudflared}"
 
   systemctl daemon-reload
   systemctl enable node-exporter vector amp-proxy
