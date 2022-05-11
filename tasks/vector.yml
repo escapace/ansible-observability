@@ -40,7 +40,7 @@
   ansible.builtin.lineinfile:
     path: /usr/lib/systemd/system/vector.service
     regexp: '^ExecStart='
-    line: "ExecStart=/usr/bin/vector -qq --config-dir /etc/vector"
+    line: "ExecStart=/usr/bin/vector -qq --watch-config --config-dir /etc/vector"
     insertafter: '^ExecStartPre='
     owner: root
     group: root
