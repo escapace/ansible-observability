@@ -528,6 +528,14 @@ static_resources:
                       service_name: aps
                       region: ${region}
                       host_rewrite: aps-workspaces.${region}.amazonaws.com
+                      match_excluded_headers:
+                        - prefix: x-envoy
+                        - prefix: x-forwarded
+                        - prefix: cf-
+                        - prefix: sec-
+                        - exact: cdn-loop
+                        - exact: x-amzn-trace-id
+
                   - name: envoy.filters.http.router
                     typed_config: {}
   clusters:
