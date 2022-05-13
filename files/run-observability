@@ -13,39 +13,36 @@ declare -A OBSERVABILITY_TAGS
 
 TELEMETRY_ENVIRONMENT_FILE_PATH="/etc/sysconfig/telemetry-environment"
 
-function wrap {
- local strings="${1}"
+function wrap() {
+  local strings="${1}"
 
- local length
- local cols
- local width
+  local length
+  local cols
+  local width
 
- length="$(echo -n "${strings}" | awk -F '|' '{print $1}' | awk '{ print length }' | sort -n | tail -1)"
- cols="$(tput cols)"
+  length="$(echo -n "${strings}" | awk -F '|' '{print $1}' | awk '{ print length }' | sort -n | tail -1)"
+  cols="$(tput cols)"
 
- if [[ $(( (cols - 4) / length )) -ge 2 ]]
- then
-  if [[ $((cols - length - 4)) -ge 80 ]]
-  then
-    width=80
+  if [[ $(((cols - 4) / length)) -ge 2 ]]; then
+    if [[ $((cols - length - 4)) -ge 80 ]]; then
+      width=80
+    else
+      width=$((cols - length - 4))
+    fi
+
+    echo -e "${strings}" \
+      | fold -s -w "${width}" \
+      | sed -e "/--/! s|^| \||g" \
+      | column -t -s '|' \
+      | sed 's/^/  /'
   else
-    width=$((cols - length - 4))
-  fi
-
-   echo -e "${strings}" | \
-    fold -s -w "${width}" | \
-    sed -e "/--/! s|^| \||g" | \
-    column -t -s '|' | \
-    sed  's/^/  /'
- else
     local lines
     local line
     readarray -t lines <<< "${strings}"
     local option
     local description
 
-    if [[ "${cols}" -ge 80 ]]
-    then
+    if [[ "${cols}" -ge 80 ]]; then
       width="78"
     else
       width=$((cols - 2))
@@ -57,13 +54,13 @@ function wrap {
 
       echo "${option}"
       echo
-      echo "${description}" | fold -s -w "${width}" |  sed  's/^/  /'
+      echo "${description}" | fold -s -w "${width}" | sed 's/^/  /'
       echo
     done
- fi
+  fi
 }
 
-function print_usage {
+function print_usage() {
   echo
   echo "Usage: ${SCRIPT_NAME} [OPTIONS]"
   echo
@@ -75,6 +72,7 @@ function print_usage {
     echo -e "--amp-workspace-id|Amazon Managed Service for Prometheus Workspace ID."
     echo -e "--cloudwatch-group-name|CloudWatch log group name."
     echo -e "--enable-consul|Collect consul metrics."
+    echo -e "--enable-service-discovery|Discover scrape targets running on this node."
     echo -e "--enable-kresd|Collect knot resolver metrics."
     echo -e "--enable-nomad|Collect nomad metrics."
     echo -e "--scrape-interval|The interval between scrapes, in seconds."
@@ -84,32 +82,32 @@ function print_usage {
   echo
 }
 
-function log {
+function log() {
   local -r level="$1"
   local -r message="$2"
   local timestamp
 
   timestamp="$(date +"%Y-%m-%d %H:%M:%S")"
 
-  >&2 echo -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
+  echo >&2 -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
 }
 
-function log_info {
+function log_info() {
   local -r message="$1"
   log "INFO" "$message"
 }
 
-function log_warn {
+function log_warn() {
   local -r message="$1"
   log "WARN" "$message"
 }
 
-function log_error {
+function log_error() {
   local -r message="$1"
   log "ERROR" "$message"
 }
 
-function assert_not_empty {
+function assert_not_empty() {
   local -r arg_name="$1"
   local -r arg_value="$2"
 
@@ -120,7 +118,7 @@ function assert_not_empty {
   fi
 }
 
-function assert_is_installed {
+function assert_is_installed() {
   local -r name="$1"
 
   if [[ ! $(command -v "${name}") ]]; then
@@ -129,14 +127,13 @@ function assert_is_installed {
   fi
 }
 
-function parse_tag {
+function parse_tag() {
   local string="${1}"
   local -r regex="^([a-zA-Z_][a-zA-Z0-9_]*)=([a-zA-Z_:][a-zA-Z0-9_:]*)"
   local name
   local value
 
-  if [[ "${string}" =~ ${regex} && "${#BASH_REMATCH[@]}" == "3" ]]
-  then
+  if [[ "${string}" =~ ${regex} && "${#BASH_REMATCH[@]}" == "3" ]]; then
     name="${BASH_REMATCH[1]}"
     value="${BASH_REMATCH[2]}"
     OBSERVABILITY_TAGS["${name}"]="${value}"
@@ -145,7 +142,7 @@ function parse_tag {
   fi
 }
 
-function join {
+function join() {
   local d=${1-} f=${2-}
 
   if shift 2; then
@@ -153,7 +150,7 @@ function join {
   fi
 }
 
-function get_object_value {
+function get_object_value() {
   local -r secrets_bucket_name="$1"
   local -r source="$2"
 
@@ -165,14 +162,11 @@ function get_object_value {
     "s3://${secrets_bucket_name}/${key}" /dev/stdout || exit 1
 }
 
-function write_vector_configuration {
-  local -r secrets_bucket_name="${1}"
-  local -r cloudwatch_group_name="${2}"
-  local -r scrape_interval="${3}"
-  local -r enable_kresd="${4}"
-  local -r enable_consul="${5}"
-  local -r enable_nomad="${6}"
-  local -r enable_cloudflared="${7}"
+function write_vector_configuration() {
+  local -r enable_kresd="${1}"
+  local -r enable_consul="${2}"
+  local -r enable_nomad="${3}"
+  local -r enable_cloudflared="${4}"
 
   local -r vector_configuration_path="/etc/vector/vector.toml"
   local -r vector_telemetry_environment_path="/etc/systemd/system/vector.service.d/telemetry-environment.conf"
@@ -180,8 +174,7 @@ function write_vector_configuration {
   local metrics_metadata_tags
 
   metrics_metadata_tags=$(
-    for name in "${!OBSERVABILITY_TAGS[@]}"
-    do
+    for name in "${!OBSERVABILITY_TAGS[@]}"; do
       echo ".tags.${name}=\"${OBSERVABILITY_TAGS[$name]:-false}\""
     done
   )
@@ -189,15 +182,10 @@ function write_vector_configuration {
   local logs_metadata_tags
 
   logs_metadata_tags=$(
-    for name in "${!OBSERVABILITY_TAGS[@]}"
-    do
+    for name in "${!OBSERVABILITY_TAGS[@]}"; do
       echo ".${name}=\"${OBSERVABILITY_TAGS[$name]:-false}\""
     done
   )
-
-  local consul_acl_token
-
-  consul_acl_token="$(get_object_value "${secrets_bucket_name}" "telemetry/consul-acl-token-consul-telemetry")"
 
   local vector_configuration_kresd=""
   local vector_configuration_consul=""
@@ -205,103 +193,111 @@ function write_vector_configuration {
   local vector_configuration_cloudflared=""
   local vector_sources_list_array=("\"metrics-amp-proxy\"" "\"metrics-node-exporter\"" "\"metrics-vector\"")
 
-  if [[ "${enable_consul}" == "true" ]]
-  then
-    vector_sources_list_array+=("\"metrics-consul\"")
+  if [[ "${enable_consul}" == "true" ]]; then
+    vector_sources_list_array+=("\"metrics-consul*\"")
 
-    vector_configuration_consul=$(cat <<EOF
+    vector_configuration_consul=$(
+      cat << EOF
 
 ## CONSUL
 
-[sources.metrics-not-tagged-consul]
+[sources.intermediate-metrics-consul]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:8500/v1/agent/metrics?format=prometheus"]
-scrape_interval_secs = ${scrape_interval}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 
-[sources.metrics-not-tagged-consul.auth]
-token = "${consul_acl_token}"
+[sources.intermediate-metrics-consul.auth]
+token = "\${CONSUL_HTTP_TOKEN}"
 strategy = "bearer"
 
 [transforms.metrics-consul]
 type = "remap"
-inputs = ["metrics-not-tagged-consul"]
+inputs = ["intermediate-metrics-consul"]
 source = '.tags.service = "consul"'
 
 EOF
-)
+    )
   fi
 
-  if [[ "${enable_kresd}" == "true" ]]
-  then
+  if [[ "${enable_kresd}" == "true" ]]; then
     vector_sources_list_array+=("\"metrics-kresd\"")
 
-    vector_configuration_kresd=$(cat <<EOF
+    vector_configuration_kresd=$(
+      cat << EOF
 
 ## KRESD
 
-[sources.metrics-not-tagged-kresd]
+[sources.intermediate-metrics-kresd]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:8453/metrics"]
-scrape_interval_secs = ${scrape_interval}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 
 [transforms.metrics-kresd]
 type = "remap"
-inputs = ["metrics-not-tagged-kresd"]
+inputs = ["intermediate-metrics-kresd"]
 source = '.tags.service = "kresd"'
 
 EOF
-)
+    )
   fi
 
-  if [[ "${enable_nomad}" == "true" ]]
-  then
+  if [[ "${enable_nomad}" == "true" ]]; then
     vector_sources_list_array+=("\"metrics-nomad\"")
 
-    vector_configuration_nomad=$(cat <<EOF
+    vector_configuration_nomad=$(
+      cat << EOF
 
 ## NOMAD
 
-[sources.metrics-not-tagged-nomad]
+[sources.intermediate-metrics-nomad]
 type = "prometheus_scrape"
-endpoints = ["https://[::1]:4646/v1/metrics?format=prometheus"]
-scrape_interval_secs = ${scrape_interval}
+# TODO: vector fails tls verification with [::1]
+endpoints = ["https://localhost:4646/v1/metrics?format=prometheus"]
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 
 [transforms.metrics-nomad]
 type = "remap"
-inputs = ["metrics-not-tagged-nomad"]
+inputs = ["intermediate-metrics-nomad"]
 source = '.tags.service = "nomad"'
 
 EOF
-)
+    )
   fi
 
-  if [[ "${enable_cloudflared}" == "true" ]]
-  then
+  if [[ "${enable_cloudflared}" == "true" ]]; then
     vector_sources_list_array+=("\"metrics-cloudflared\"")
 
-    vector_configuration_cloudflared=$(cat <<EOF
+    vector_configuration_cloudflared=$(
+      cat << EOF
 
 ## cloudflared
 
-[sources.metrics-not-tagged-cloudflared]
+[sources.intermediate-metrics-cloudflared]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:9301/metrics"]
-scrape_interval_secs = ${scrape_interval}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 
 [transforms.metrics-cloudflared]
 type = "remap"
-inputs = ["metrics-not-tagged-cloudflared"]
+inputs = ["intermediate-metrics-cloudflared"]
 source = '.tags.service = "cloudflared"'
 
 EOF
-)
+    )
   fi
 
   local vector_sources_list
   vector_sources_list="$(join ", " "${vector_sources_list_array[@]}")"
 
-  local -r vector_configuration=$(cat <<EOF
-healthchecks.require_healthy = false
+  local -r vector_configuration=$(
+    cat << EOF
+[healthchecks]
+enabled = true
+require_healthy = false
+
+[api]
+enabled = false
+address = "127.0.0.1:8686"
 
 # JOURNALD
 
@@ -311,37 +307,37 @@ current_boot_only = true
 
 ## NODE EXPORTER
 
-[sources.metrics-not-tagged-node-exporter]
+[sources.intermediate-metrics-node-exporter]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:9100/metrics"]
-scrape_interval_secs = ${scrape_interval}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 
 [transforms.metrics-node-exporter]
 type = "remap"
-inputs = ["metrics-not-tagged-node-exporter"]
+inputs = ["intermediate-metrics-node-exporter"]
 source = '.tags.service = "node-exporter"'
 
 ## VECTOR
 
-[sources.metrics-not-tagged-vector]
+[sources.intermediate-metrics-vector]
 type = "internal_metrics"
-scrape_interval_secs = ${scrape_interval}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 
 [transforms.metrics-vector]
 type = "remap"
-inputs = ["metrics-not-tagged-vector"]
+inputs = ["intermediate-metrics-vector"]
 source = '.tags.service = "vector"'
 
 ## AMP-PROXY
 
-[sources.metrics-not-tagged-amp-proxy]
+[sources.intermediate-metrics-amp-proxy]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:9901/stats/prometheus"]
-scrape_interval_secs = ${scrape_interval}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 
 [transforms.metrics-amp-proxy]
 type = "remap"
-inputs = ["metrics-not-tagged-amp-proxy"]
+inputs = ["intermediate-metrics-amp-proxy"]
 source = '.tags.service = "amp-proxy"'
 
 ${vector_configuration_kresd}
@@ -391,7 +387,7 @@ inputs = [
 type = "aws_cloudwatch_logs"
 create_missing_group = true
 create_missing_stream = true
-group_name = "${cloudwatch_group_name}"
+group_name = "\${AWS_CLOUDWATCH_GROUP_NAME}"
 compression = "gzip"
 region = "${EC2_INSTANCE_REGION}"
 encoding = "json"
@@ -401,7 +397,7 @@ inputs = [
 ]
 
 EOF
-)
+  )
 
   log_info "Writing ${vector_configuration_path}"
 
@@ -416,7 +412,8 @@ EOF
 
   log_info "Writing ${vector_telemetry_environment_path}"
 
-  local -r vector_telemetry_environment=$(cat <<EOF
+  local -r vector_telemetry_environment=$(
+    cat << EOF
 [Unit]
 After=consul-online.target
 Wants=consul-online.target
@@ -430,14 +427,17 @@ Wants=node-exporter.service
 [Service]
 EnvironmentFile=${TELEMETRY_ENVIRONMENT_FILE_PATH}
 EOF
-)
+  )
 
   echo -e "${vector_telemetry_environment}" > "${vector_telemetry_environment_path}"
   chown root:root "${vector_telemetry_environment_path}"
   chmod 644 "${vector_telemetry_environment_path}"
 }
 
-function write_telemetry_environment {
+function write_telemetry_environment() {
+  local -r secrets_bucket_name="${1}"
+  local -r scrape_interval="${2}"
+  local -r cloudwatch_group_name="${3}"
   local -r telemetry_environment_file_path="${TELEMETRY_ENVIRONMENT_FILE_PATH}"
 
   local aws_access_key_id
@@ -446,31 +446,39 @@ function write_telemetry_environment {
   aws_access_key_id="$(get_object_value "${secrets_bucket_name}" "telemetry/aws-access-key-id-telemetry")"
   aws_secret_access_key="$(get_object_value "${secrets_bucket_name}" "telemetry/aws-secret-access-key-telemetry")"
 
-  local -r telemetry_environment=$(cat <<EOF
+  local consul_http_token
+
+  consul_http_token="$(get_object_value "${secrets_bucket_name}" "telemetry/consul-acl-token-consul-telemetry")"
+
+  local -r telemetry_environment=$(
+    cat << EOF
 AWS_ACCESS_KEY_ID=${aws_access_key_id}
 AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}
+AWS_CLOUDWATCH_GROUP_NAME=${cloudwatch_group_name}
+VECTOR_SCRAPE_INTERVAL=${scrape_interval}
+CONSUL_HTTP_TOKEN=${consul_http_token}
 EOF
-)
+  )
 
   log_info "Writing ${telemetry_environment_file_path}"
 
   echo -e "${telemetry_environment}" > "${telemetry_environment_file_path}"
-  chown root:root  "${telemetry_environment_file_path}"
+  chown root:root "${telemetry_environment_file_path}"
   chmod 640 "${telemetry_environment_file_path}"
 
   setfacl -m u:vector:r "${telemetry_environment_file_path}"
   setfacl -m u:amp-proxy:r "${telemetry_environment_file_path}"
 }
 
-function write_amp_proxy_configuration {
-  local -r secrets_bucket_name="${1}"
-  local -r workspace_id="${2}"
+function write_amp_proxy_configuration() {
+  local -r workspace_id="${1}"
   local -r region="${EC2_INSTANCE_REGION}"
 
   local -r amp_proxy_configuration_path="/opt/amp-proxy/config/default.yml"
   local -r amp_proxy_service_configuration_path="/etc/systemd/system/amp-proxy.service"
 
-  local -r amp_proxy_configuration=$(cat <<EOF
+  local -r amp_proxy_configuration=$(
+    cat << EOF
 admin:
   address:
     socket_address: { address: "::1", port_value: 9901 }
@@ -539,9 +547,10 @@ static_resources:
                       address: aps-workspaces.${region}.amazonaws.com
                       port_value: 443
 EOF
-)
+  )
 
-  local -r amp_proxy_service_configuration=$(cat <<EOF
+  local -r amp_proxy_service_configuration=$(
+    cat << EOF
 [Unit]
 Description=Amazon Managed Service for Prometheus Signing Proxy
 After=network-online.target
@@ -562,7 +571,7 @@ WantedBy=multi-user.target
 WantedBy=vector.service
 
 EOF
-)
+  )
 
   log_info "Writing ${amp_proxy_configuration_path}"
   log_info "Writing ${amp_proxy_service_configuration_path}"
@@ -576,7 +585,83 @@ EOF
   chmod 644 "${amp_proxy_service_configuration_path}"
 }
 
-function configure_node_exporter {
+function write_service_discovery_configuration() {
+  local -r vector_service_discovery_service_path="/etc/systemd/system/vector-service-discovery.service"
+  local -r vector_service_discovery_template_path="/etc/vector/service-disccovery.ctmpl"
+  local -r vector_service_discovery_configuration_path="/etc/vector/service-disccovery.toml"
+
+  local -r vector_service_discovery_service=$(
+    cat << EOF
+[Unit]
+Description=Vector Service Discovery
+After=network-online.target
+Wants=network-online.target
+After=vector.service
+Wants=vector.service
+
+[Service]
+User=vector
+Group=vector
+EnvironmentFile=${TELEMETRY_ENVIRONMENT_FILE_PATH}
+ExecStart=consul-template -log-level=err -reload-signal=SIGHUP -kill-signal=SIGINT -consul-retry -consul-retry-attempts=0 -consul-retry-backoff=250ms -consul-retry-max-backoff=0 -template="${vector_service_discovery_template_path}:${vector_service_discovery_configuration_path}"
+ExecReload=/bin/kill -HUP \$MAINPID
+KillSignal=SIGINT
+LimitNOFILE=640000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
+EOF
+  )
+
+  local -r vector_service_discovery_template=$(
+    cat << EOF
+{{- with node -}}
+{{- range .Services -}}
+{{- if and (index .Meta "prometheus_endpoints") (.Service | regexMatch "-sidecar-proxy" | not) -}}
+{{- scratch.MapSet "vars" .Service ("[]" | parseJSON) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- with node -}}
+{{- range .Services -}}
+{{- if and (index .Meta "prometheus_endpoints") (.Service | regexMatch "-sidecar-proxy" | not) -}}
+{{- \$value :=  sprig_uniq (sprig_concat ((index (scratch.Get "vars") .Service)) (.Meta.prometheus_endpoints | parseJSON)) -}}
+{{- scratch.MapSet "vars" .Service \$value -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- range sprig_keys (scratch.Get "vars") }}
+# {{ . }}
+
+[sources.intermediate-metrics-consul-{{ sprig_snakecase . }}]
+type = "prometheus_scrape"
+endpoints = {{ index (scratch.Get "vars") . | sprig_uniq | toJSON }}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+
+[transforms.metrics-consul-{{ sprig_snakecase . }}]
+type = "remap"
+inputs = ["intermediate-metrics-consul-{{ sprig_snakecase . }}"]
+source = '.tags.service = "{{ . }}"'
+{{- end }}
+
+EOF
+  )
+
+  echo -e "$vector_service_discovery_service" > "$vector_service_discovery_service_path"
+  chown root:root "${vector_service_discovery_service_path}"
+  chmod 644 "${vector_service_discovery_service_path}"
+
+  echo -e "$vector_service_discovery_template" > "$vector_service_discovery_template_path"
+  chown vector:vector "${vector_service_discovery_template_path}"
+  chmod 640 "${vector_service_discovery_template_path}"
+}
+
+function configure_node_exporter() {
   local node_exporter_options_path="/opt/node-exporter/config/options"
 
   local node_exporter_options_array=(
@@ -614,9 +699,8 @@ function configure_node_exporter {
   chmod 640 "${node_exporter_options_path}"
 }
 
-function run {
-  if [[ ! -f "/etc/sysconfig/ec2-environment" ]]
-  then
+function run() {
+  if [[ ! -f "/etc/sysconfig/ec2-environment" ]]; then
     print_usage
 
     log_error "/etc/sysconfig/ec2-environment: No such file"
@@ -636,6 +720,7 @@ function run {
   local enable_consul="false"
   local enable_nomad="false"
   local enable_cloudflared="false"
+  local enable_service_discovery="false"
 
   while [[ $# -gt 0 ]]; do
     local key="$1"
@@ -678,6 +763,9 @@ function run {
       --enable-cloudflared)
         enable_cloudflared=true
         ;;
+      --enable-service-discovery)
+        enable_service_discovery=true
+        ;;
       --help)
         print_usage
         exit
@@ -696,8 +784,7 @@ function run {
   assert_not_empty "--cloudwatch-group-name" "${cloudwatch_group_name}"
   assert_not_empty "--amp-workspace-id" "${amp_workspace_id}"
 
-  if ! [[ "${scrape_interval}" =~ ^[0-9]+$ ]]
-  then
+  if ! [[ "${scrape_interval}" =~ ^[0-9]+$ ]]; then
     log_error "--scrape-interval must be a number."
     print_usage
     exit 1
@@ -707,15 +794,41 @@ function run {
   assert_is_installed "jq"
   assert_is_installed "awk"
 
-  configure_node_exporter
-  write_telemetry_environment
-  write_amp_proxy_configuration "${secrets_bucket_name}" "${amp_workspace_id}"
+  if [[ "${enable_service_discovery}" == "true" ]]
+  then
+    assert_is_installed "consul-template"
+  fi
 
-  write_vector_configuration "${secrets_bucket_name}" "${cloudwatch_group_name}" "${scrape_interval}" "${enable_kresd}" "${enable_consul}" "${enable_nomad}" "${enable_cloudflared}"
+  configure_node_exporter
+
+  write_telemetry_environment \
+    "${secrets_bucket_name}" \
+    "${scrape_interval}" \
+    "${cloudwatch_group_name}"
+
+  write_amp_proxy_configuration \
+    "${amp_workspace_id}"
+
+  write_vector_configuration \
+    "${enable_kresd}" \
+    "${enable_consul}" \
+    "${enable_nomad}" \
+    "${enable_cloudflared}"
+
+  if [[ "${enable_service_discovery}" == "true" ]]
+  then
+    write_service_discovery_configuration
+  fi
 
   systemctl daemon-reload
   systemctl enable node-exporter vector amp-proxy
   systemctl restart node-exporter amp-proxy vector
+
+  if [[ "${enable_service_discovery}" == "true" ]]
+  then
+    systemctl enable vector-service-discovery
+    systemctl restart vector-service-discovery
+  fi
 }
 
 run "$@"
