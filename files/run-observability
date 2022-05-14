@@ -347,7 +347,7 @@ ${vector_configuration_cloudflared}
 
 ## ---
 
-[transforms.metrics-metadata]
+[transforms.intermediate-metrics-enrich]
 type = "remap"
 source = '''
 .tags.region = get_env_var!("EC2_INSTANCE_REGION")
@@ -359,7 +359,7 @@ ${metrics_metadata_tags}
 '''
 inputs = [${vector_sources_list}]
 
-[transforms.logs-metadata]
+[transforms.intermediate-logs-enrich]
 type = "remap"
 source = '''
 .region = get_env_var!("EC2_INSTANCE_REGION")
@@ -375,12 +375,120 @@ inputs = [
 
 ## ---
 
+[transforms.intermediate-metrics-filter]
+type = "filter"
+inputs = [
+  "intermediate-metrics-enrich"
+]
+condition.type = "vrl"
+condition.source = '''
+  if exists(.name) {
+    if (starts_with(.name, "envoy_") ?? false) {
+      match_any(.name, [
+        r'^envoy_cluster_upstream_cx',
+        r'^envoy_cluster_upstream_rq',
+        r'^envoy_cluster_upstream_rq_time_bucket',
+        r'^envoy_cluster_upstream_rq_total',
+        r'^envoy_cluster_upstream_rq_xx',
+        r'^envoy_http_downstream_cx_active',
+        r'^envoy_http_downstream_cx_rx_bytes_total',
+        r'^envoy_http_downstream_cx_total',
+        r'^envoy_http_downstream_cx_tx_bytes_total',
+        r'^envoy_http_downstream_rq',
+        r'^envoy_http_downstream_rq_total',
+        r'^envoy_http_downstream_rq_xx',
+        r'^envoy_listener_http_downstream_rq_xx',
+        r'^envoy_tcp_downstream_cx',
+        r'^envoy_tcp_downstream_cx_rx_bytes_total',
+        r'^envoy_tcp_downstream_cx_tx_bytes_total'
+      ]) ?? false
+    } else if (starts_with(.name, "go_") ?? false) {
+      match_any(.name, [
+        r'^go_gc_duration_seconds_sum',
+        r'^go_go_goroutines',
+        r'^go_memstats_alloc_bytes',
+        r'^go_memstats_alloc_bytes_total',
+        r'^go_memstats_heap_inuse_bytes',
+        r'^go_memstats_stack_inuse_bytes'
+      ]) ?? false
+    } else if (starts_with(.name, "node_") ?? false) {
+      match_any(.name, [
+        r'^node_context_switches_total',
+        r'^node_cpu_seconds_total',
+        r'^node_disk_discard_time_seconds_total',
+        r'^node_disk_discards_completed_total',
+        r'^node_disk_discards_merged_total',
+        r'^node_disk_io_now',
+        r'^node_disk_io_time_seconds_total',
+        r'^node_disk_io_time_weighted_seconds_total',
+        r'^node_disk_read_bytes_total',
+        r'^node_disk_read_time_seconds_total',
+        r'^node_disk_reads_completed_total',
+        r'^node_disk_reads_merged_total',
+        r'^node_disk_write_time_seconds_total',
+        r'^node_disk_writes_completed_total',
+        r'^node_disk_writes_merged_total',
+        r'^node_disk_written_bytes_total',
+        r'^node_entropy_available_bits',
+        r'^node_filesystem_avail_bytes',
+        r'^node_filesystem_device_error',
+        r'^node_filesystem_free_bytes',
+        r'^node_filesystem_readonly',
+        r'^node_filesystem_size_bytes',
+        r'^node_forks_total',
+        r'^node_intr_total',
+        r'^node_load1',
+        r'^node_load15',
+        r'^node_load5',
+        r'^node_memory_Buffers_bytes',
+        r'^node_memory_Cached_bytes',
+        r'^node_memory_HardwareCorrupted_bytes',
+        r'^node_memory_MemFree_bytes',
+        r'^node_memory_MemTotal_bytes',
+        r'^node_memory_PageTables_bytes',
+        r'^node_memory_SReclaimable_bytes',
+        r'^node_memory_Slab_bytes',
+        r'^node_memory_SwapCached_bytes',
+        r'^node_memory_SwapFree_bytes',
+        r'^node_memory_SwapTotal_bytes',
+        r'^node_network_receive_bytes_total',
+        r'^node_network_receive_drop_total',
+        r'^node_network_receive_errs_total',
+        r'^node_network_receive_packets_total',
+        r'^node_network_transmit_bytes_total',
+        r'^node_network_transmit_drop_total',
+        r'^node_network_transmit_errs_total',
+        r'^node_network_transmit_packets_total',
+        r'^node_processes_max_threads',
+        r'^node_processes_state',
+        r'^node_processes_threads',
+        r'^node_procs_blocked',
+        r'^node_procs_running',
+        r'^node_schedstat_running_seconds_total',
+        r'^node_schedstat_timeslices_total',
+        r'^node_schedstat_waiting_seconds_total',
+        r'^node_scrape_collector_duration_seconds',
+        r'^node_systemd_units',
+        r'^node_timex_estimated_error_seconds',
+        r'^node_timex_maxerror_seconds',
+        r'^node_timex_offset_seconds'
+      ]) ?? false
+    } else {
+      !(match_any(.name, [
+        r'^build_info'
+      ]) ?? true)
+    }
+  } else {
+    false
+  }
+'''
+
 [sinks.metrics-amp-sink]
 type = "prometheus_remote_write"
 endpoint = "http://[::1]:9201/api/v1/remote_write"
 healthcheck = false
 inputs = [
-  "metrics-metadata"
+  "intermediate-metrics-filter"
 ]
 
 [sinks.logs-cloudwatch-sink]
@@ -393,7 +501,7 @@ region = "${EC2_INSTANCE_REGION}"
 encoding = "json"
 stream_name = "{{ instance_id }}"
 inputs = [
-  "logs-metadata"
+  "intermediate-logs-enrich"
 ]
 
 EOF
@@ -672,8 +780,9 @@ EOF
 function configure_node_exporter() {
   local node_exporter_options_path="/opt/node-exporter/config/options"
 
+  # '--collector.conntrack'
+
   local node_exporter_options_array=(
-    '--collector.conntrack'
     '--collector.cpu'
     '--collector.disable-defaults'
     '--collector.diskstats'
@@ -693,7 +802,7 @@ function configure_node_exporter() {
     '--collector.schedstat'
     '--collector.stat'
     '--collector.systemd'
-    '--collector.systemd.unit-include="(nomad.service|consul.service,amp-proxy.service|vector.service|kresd@.+|consul-terraform-sync.service|sshd.service)"'
+    '--collector.systemd.unit-include="(nomad.service|consul.service|amp-proxy.service|vector.service|kresd@.+|consul-terraform-sync.service|sshd.service|vector-service-discovery.service|ferm.service|ec2-environment.service|storage-setup.service|docker.service|consul-online.service)"'
     '--collector.timex'
     '--collector.vmstat'
     '--web.listen-address="[::1]:9100"'
