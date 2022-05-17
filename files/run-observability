@@ -72,9 +72,10 @@ function print_usage() {
     echo -e "--amp-workspace-id|Amazon Managed Service for Prometheus Workspace ID."
     echo -e "--cloudwatch-group-name|CloudWatch log group name."
     echo -e "--enable-consul|Collect consul metrics."
-    echo -e "--enable-service-discovery|Discover scrape targets running on this node."
     echo -e "--enable-kresd|Collect knot resolver metrics."
+    echo -e "--enable-newrelic|New Relic infrastructure agent and log collection."
     echo -e "--enable-nomad|Collect nomad metrics."
+    echo -e "--enable-service-discovery|Discover scrape targets running on this node."
     echo -e "--scrape-interval|The interval between scrapes, in seconds."
     echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
     echo -e "--tag|Tag vector logs and metrics. Repeat this option for additional tags."
@@ -167,6 +168,7 @@ function write_vector_configuration() {
   local -r enable_consul="${2}"
   local -r enable_nomad="${3}"
   local -r enable_cloudflared="${4}"
+  local -r enable_newrelic="${5}"
 
   local -r vector_configuration_path="/etc/vector/vector.toml"
   local -r vector_telemetry_environment_path="/etc/systemd/system/vector.service.d/telemetry-environment.conf"
@@ -187,11 +189,34 @@ function write_vector_configuration() {
     done
   )
 
+  local vector_configuration_newrelic=""
   local vector_configuration_kresd=""
   local vector_configuration_consul=""
   local vector_configuration_nomad=""
   local vector_configuration_cloudflared=""
   local vector_sources_list_array=("\"metrics-amp-proxy\"" "\"metrics-node-exporter\"" "\"metrics-vector\"")
+
+  if [[ "${enable_newrelic}" == "true" ]]; then
+    vector_configuration_newrelic=$(
+      cat << EOF
+[sinks.logs-newrelic-sink]
+type = "new_relic"
+inputs = [
+  "intermediate-logs-enrich"
+]
+
+license_key = "\${NEWRELIC_LICENSE_KEY}"
+account_id = "\${NEWRELIC_ACCOUNT_ID}"
+region = "us"
+compression = "gzip"
+api = "logs"
+batch.max_events = 50
+healthcheck.enabled = false
+request.concurrency = "adaptive"
+EOF
+    )
+
+  fi
 
   if [[ "${enable_consul}" == "true" ]]; then
     vector_sources_list_array+=("\"metrics-consul*\"")
@@ -367,6 +392,7 @@ source = '''
 .instance_type = get_env_var!("EC2_INSTANCE_TYPE")
 .availability_zone = get_env_var!("EC2_INSTANCE_AVAILABILITY_ZONE")
 del(.host)
+.host = get_hostname!()
 ${logs_metadata_tags}
 '''
 inputs = [
@@ -385,33 +411,57 @@ condition.source = '''
   if exists(.name) {
     if (starts_with(.name, "envoy_") ?? false) {
       match_any(.name, [
-        r'^envoy_cluster_upstream_cx',
-        r'^envoy_cluster_upstream_rq',
+        r'^envoy_cluster_upstream_cx_connect_fail',
+        r'^envoy_cluster_upstream_cx_no_route',
+        r'^envoy_cluster_upstream_cx_rx_bytes_total',
+        r'^envoy_cluster_upstream_cx_total',
+        r'^envoy_cluster_upstream_cx_tx_bytes_total',
+        r'^envoy_cluster_upstream_cx_tx_bytes_total',
+        r'^envoy_cluster_upstream_rq_completed',
+        r'^envoy_cluster_upstream_rq_time_bucket',
         r'^envoy_cluster_upstream_rq_time_bucket',
         r'^envoy_cluster_upstream_rq_total',
+        r'^envoy_cluster_upstream_rq_xx',
         r'^envoy_cluster_upstream_rq_xx',
         r'^envoy_http_downstream_cx_active',
         r'^envoy_http_downstream_cx_rx_bytes_total',
         r'^envoy_http_downstream_cx_total',
         r'^envoy_http_downstream_cx_tx_bytes_total',
-        r'^envoy_http_downstream_rq',
+        r'^envoy_http_downstream_rq_completed',
+        r'^envoy_http_downstream_rq_time_bucket',
         r'^envoy_http_downstream_rq_total',
         r'^envoy_http_downstream_rq_xx',
+        r'^envoy_http_downstream_rq_xx',
         r'^envoy_listener_http_downstream_rq_xx',
-        r'^envoy_tcp_downstream_cx',
+        r'^envoy_tcp_downstream_cx_connect_fail',
+        r'^envoy_tcp_downstream_cx_no_route',
         r'^envoy_tcp_downstream_cx_rx_bytes_total',
+        r'^envoy_tcp_downstream_cx_rx_bytes_total',
+        r'^envoy_tcp_downstream_cx_total',
+        r'^envoy_tcp_downstream_cx_tx_bytes_total',
         r'^envoy_tcp_downstream_cx_tx_bytes_total'
+      ]) ?? false
+    } else if (starts_with(.name, "process_") ?? false) {
+      match_any(.name, [
+        r'^process_cpu_seconds_total',
+        r'^process_max_fds',
+        r'^process_open_fds',
+        r'^process_resident_memory_bytes',
+        r'^process_start_time_seconds',
+        r'^process_virtual_memory_bytes',
+        r'^process_virtual_memory_max_bytes'
       ]) ?? false
     } else if (starts_with(.name, "go_") ?? false) {
       match_any(.name, [
+        r'^go_gc_duration_seconds\$',
         r'^go_gc_duration_seconds_sum',
-        r'^go_go_goroutines',
+        r'^go_goroutines',
         r'^go_memstats_alloc_bytes',
         r'^go_memstats_alloc_bytes_total',
         r'^go_memstats_heap_inuse_bytes',
         r'^go_memstats_stack_inuse_bytes'
       ]) ?? false
-    } else if (starts_with(.name, "node_") ?? false) {
+    } else if (.tags.service == "node-exporter") {
       match_any(.name, [
         r'^node_context_switches_total',
         r'^node_cpu_seconds_total',
@@ -473,10 +523,42 @@ condition.source = '''
         r'^node_timex_maxerror_seconds',
         r'^node_timex_offset_seconds'
       ]) ?? false
+    } else if (.tags.service == "kresd") {
+      match_any(.name, [
+        r'^kresd_answer_cached',
+        r'^kresd_answer_nodata',
+        r'^kresd_answer_noerror',
+        r'^kresd_answer_nxdomain',
+        r'^kresd_answer_servfail',
+        r'^kresd_answer_total',
+        r'^kresd_cache_usage_percent',
+        r'^kresd_latency_bucket',
+        r'^kresd_request_total'
+      ]) ?? false
+    } else if (.tags.service == "vector") {
+      match_any(.name, [
+        r'^component_sent_events_total',
+        r'^http_client_errors_total',
+        r'^http_client_rtt_seconds_bucket',
+        r'^utilization'
+      ]) ?? false
+    } else if (.tags.service == "cloudflared") {
+      match_any(.name, [
+        r'^cloudflared_tunnel_request_errors',
+        r'^cloudflared_tunnel_response_by_code',
+        r'^cloudflared_tunnel_server_locations',
+        r'^cloudflared_tunnel_total_requests',
+        r'^cloudflared_tunnel_tunnel_authenticate_success',
+        r'^cloudflared_tunnel_tunnel_register_fail',
+        r'^cloudflared_tunnel_tunnel_register_success',
+        r'^quic_client_latest_rtt',
+        r'^quic_client_min_rtt',
+        r'^quic_client_receive_packets',
+        r'^quic_client_sent_packets',
+        r'^quic_client_smoothed_rtt'
+      ]) ?? false
     } else {
-      !(match_any(.name, [
-        r'^build_info'
-      ]) ?? true)
+      true
     }
   } else {
     false
@@ -487,6 +569,7 @@ condition.source = '''
 type = "prometheus_remote_write"
 endpoint = "http://[::1]:9201/api/v1/remote_write"
 healthcheck = false
+request.concurrency = "adaptive"
 inputs = [
   "intermediate-metrics-filter"
 ]
@@ -500,9 +583,12 @@ compression = "gzip"
 region = "${EC2_INSTANCE_REGION}"
 encoding = "json"
 stream_name = "{{ instance_id }}"
+request.concurrency = "adaptive"
 inputs = [
   "intermediate-logs-enrich"
 ]
+
+$vector_configuration_newrelic
 
 EOF
   )
@@ -546,6 +632,8 @@ function write_telemetry_environment() {
   local -r secrets_bucket_name="${1}"
   local -r scrape_interval="${2}"
   local -r cloudwatch_group_name="${3}"
+  local -r enable_newrelic="${4}"
+
   local -r telemetry_environment_file_path="${TELEMETRY_ENVIRONMENT_FILE_PATH}"
 
   local aws_access_key_id
@@ -558,6 +646,56 @@ function write_telemetry_environment() {
 
   consul_http_token="$(get_object_value "${secrets_bucket_name}" "telemetry/consul-acl-token-consul-telemetry")"
 
+  local telemetry_newrelic_environment=""
+
+  if [[ "${enable_newrelic}" == "true" ]]; then
+    local newrelic_account_id=""
+    local newrelic_license_key=""
+
+    newrelic_account_id="$(get_object_value "${secrets_bucket_name}" "telemetry/newrelic-account-id")"
+    newrelic_license_key="$(get_object_value "${secrets_bucket_name}" "telemetry/newrelic-license-key")"
+
+    telemetry_newrelic_environment=$(
+      cat << EOF
+NEWRELIC_ACCOUNT_ID=${newrelic_account_id}
+NEWRELIC_LICENSE_KEY=${newrelic_license_key}
+EOF
+    )
+
+    local -r newrelic_infra_file_path="/etc/newrelic-infra.yml"
+
+    local -r newrelic_infra=$(
+    cat << EOF
+license_key: "${newrelic_license_key}"
+enable_process_metrics: true
+selinux_enable_semodule: false
+dns_hostname_resolution: false
+network_interface_filters:
+  prefix:
+    - dummy
+    - lo
+    - vmnet
+    - sit
+    - tun
+    - tap
+    - vmnet
+    - veth
+    - docker
+    - nomad
+  index-1:
+    - tun
+    - tap
+EOF
+    )
+
+    log_info "Writing ${newrelic_infra_file_path}"
+
+    echo -e "${newrelic_infra}" > "${newrelic_infra_file_path}"
+
+    chown root:root "${newrelic_infra_file_path}"
+    chmod 640 "${newrelic_infra_file_path}"
+  fi
+
   local -r telemetry_environment=$(
     cat << EOF
 AWS_ACCESS_KEY_ID=${aws_access_key_id}
@@ -565,12 +703,14 @@ AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}
 AWS_CLOUDWATCH_GROUP_NAME=${cloudwatch_group_name}
 VECTOR_SCRAPE_INTERVAL=${scrape_interval}
 CONSUL_HTTP_TOKEN=${consul_http_token}
+${telemetry_newrelic_environment}
 EOF
   )
 
   log_info "Writing ${telemetry_environment_file_path}"
 
   echo -e "${telemetry_environment}" > "${telemetry_environment_file_path}"
+
   chown root:root "${telemetry_environment_file_path}"
   chmod 640 "${telemetry_environment_file_path}"
 
@@ -838,6 +978,7 @@ function run() {
   local enable_nomad="false"
   local enable_cloudflared="false"
   local enable_service_discovery="false"
+  local enable_newrelic="false"
 
   while [[ $# -gt 0 ]]; do
     local key="$1"
@@ -883,6 +1024,9 @@ function run() {
       --enable-service-discovery)
         enable_service_discovery=true
         ;;
+      --enable-newrelic)
+        enable_newrelic=true
+        ;;
       --help)
         print_usage
         exit
@@ -911,8 +1055,7 @@ function run() {
   assert_is_installed "jq"
   assert_is_installed "awk"
 
-  if [[ "${enable_service_discovery}" == "true" ]]
-  then
+  if [[ "${enable_service_discovery}" == "true" ]]; then
     assert_is_installed "consul-template"
   fi
 
@@ -921,7 +1064,8 @@ function run() {
   write_telemetry_environment \
     "${secrets_bucket_name}" \
     "${scrape_interval}" \
-    "${cloudwatch_group_name}"
+    "${cloudwatch_group_name}" \
+    "${enable_newrelic}"
 
   write_amp_proxy_configuration \
     "${amp_workspace_id}"
@@ -930,10 +1074,10 @@ function run() {
     "${enable_kresd}" \
     "${enable_consul}" \
     "${enable_nomad}" \
-    "${enable_cloudflared}"
+    "${enable_cloudflared}" \
+    "${enable_newrelic}"
 
-  if [[ "${enable_service_discovery}" == "true" ]]
-  then
+  if [[ "${enable_service_discovery}" == "true" ]]; then
     write_service_discovery_configuration
   fi
 
@@ -941,10 +1085,14 @@ function run() {
   systemctl enable node-exporter vector amp-proxy
   systemctl restart node-exporter amp-proxy vector
 
-  if [[ "${enable_service_discovery}" == "true" ]]
-  then
+  if [[ "${enable_service_discovery}" == "true" ]]; then
     systemctl enable vector-service-discovery
     systemctl restart vector-service-discovery
+  fi
+
+  if [[ "${enable_newrelic}" == "true" ]]; then
+    systemctl enable newrelic-infra
+    systemctl restart newrelic-infra
   fi
 }
 
