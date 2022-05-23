@@ -411,34 +411,29 @@ condition.source = '''
   if exists(.name) {
     if (starts_with(.name, "envoy_") ?? false) {
       match_any(.name, [
+        r'^envoy_cluster_upstream_cx_active',
         r'^envoy_cluster_upstream_cx_connect_fail',
         r'^envoy_cluster_upstream_cx_no_route',
         r'^envoy_cluster_upstream_cx_rx_bytes_total',
         r'^envoy_cluster_upstream_cx_total',
         r'^envoy_cluster_upstream_cx_tx_bytes_total',
-        r'^envoy_cluster_upstream_cx_tx_bytes_total',
         r'^envoy_cluster_upstream_rq_completed',
-        r'^envoy_cluster_upstream_rq_time_bucket',
-        r'^envoy_cluster_upstream_rq_time_bucket',
+        r'^envoy_cluster_upstream_rq_time',
         r'^envoy_cluster_upstream_rq_total',
-        r'^envoy_cluster_upstream_rq_xx',
         r'^envoy_cluster_upstream_rq_xx',
         r'^envoy_http_downstream_cx_active',
         r'^envoy_http_downstream_cx_rx_bytes_total',
         r'^envoy_http_downstream_cx_total',
         r'^envoy_http_downstream_cx_tx_bytes_total',
         r'^envoy_http_downstream_rq_completed',
-        r'^envoy_http_downstream_rq_time_bucket',
+        r'^envoy_http_downstream_rq_time',
         r'^envoy_http_downstream_rq_total',
-        r'^envoy_http_downstream_rq_xx',
         r'^envoy_http_downstream_rq_xx',
         r'^envoy_listener_http_downstream_rq_xx',
         r'^envoy_tcp_downstream_cx_connect_fail',
         r'^envoy_tcp_downstream_cx_no_route',
         r'^envoy_tcp_downstream_cx_rx_bytes_total',
-        r'^envoy_tcp_downstream_cx_rx_bytes_total',
         r'^envoy_tcp_downstream_cx_total',
-        r'^envoy_tcp_downstream_cx_tx_bytes_total',
         r'^envoy_tcp_downstream_cx_tx_bytes_total'
       ]) ?? false
     } else if (starts_with(.name, "process_") ?? false) {
@@ -532,14 +527,15 @@ condition.source = '''
         r'^kresd_answer_servfail',
         r'^kresd_answer_total',
         r'^kresd_cache_usage_percent',
-        r'^kresd_latency_bucket',
+        r'^kresd_latency',
         r'^kresd_request_total'
       ]) ?? false
     } else if (.tags.service == "vector") {
       match_any(.name, [
+        r'^component_received_events_total',
         r'^component_sent_events_total',
         r'^http_client_errors_total',
-        r'^http_client_rtt_seconds_bucket',
+        r'^http_client_rtt_seconds',
         r'^utilization'
       ]) ?? false
     } else if (.tags.service == "cloudflared") {
@@ -975,6 +971,7 @@ function run() {
   local scrape_interval="60"
   local enable_kresd="false"
   local enable_consul="false"
+  local enable_consul_esm="false"
   local enable_nomad="false"
   local enable_cloudflared="false"
   local enable_service_discovery="false"
@@ -1014,6 +1011,9 @@ function run() {
         ;;
       --enable-consul)
         enable_consul=true
+        ;;
+      --enable-consul-esm)
+        enable_consul_esm=true
         ;;
       --enable-nomad)
         enable_nomad=true
