@@ -169,6 +169,7 @@ function write_vector_configuration() {
   local -r enable_nomad="${3}"
   local -r enable_cloudflared="${4}"
   local -r enable_newrelic="${5}"
+  local -r enable_esm="${6}"
 
   local -r vector_configuration_path="/etc/vector/vector.toml"
   local -r vector_telemetry_environment_path="/etc/systemd/system/vector.service.d/telemetry-environment.conf"
@@ -194,6 +195,7 @@ function write_vector_configuration() {
   local vector_configuration_consul=""
   local vector_configuration_nomad=""
   local vector_configuration_cloudflared=""
+  local vector_configuration_esm=""
   local vector_sources_list_array=("\"metrics-amp-proxy\"" "\"metrics-node-exporter\"" "\"metrics-vector\"")
 
   if [[ "${enable_newrelic}" == "true" ]]; then
@@ -239,6 +241,28 @@ strategy = "bearer"
 type = "remap"
 inputs = ["intermediate-metrics-consul"]
 source = '.tags.service = "consul"'
+
+EOF
+    )
+  fi
+
+  if [[ "${enable_esm}" == "true" ]]; then
+    vector_sources_list_array+=("\"metrics-esm\"")
+
+    vector_configuration_esm=$(
+      cat << EOF
+
+## esm
+
+[sources.intermediate-metrics-esm]
+type = "prometheus_scrape"
+endpoints = ["http://[::1]:8559/metrics"]
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+
+[transforms.metrics-esm]
+type = "remap"
+inputs = ["intermediate-metrics-esm"]
+source = '.tags.service = "esm"'
 
 EOF
     )
@@ -369,6 +393,7 @@ ${vector_configuration_kresd}
 ${vector_configuration_consul}
 ${vector_configuration_nomad}
 ${vector_configuration_cloudflared}
+${vector_configuration_esm}
 
 ## ---
 
@@ -971,7 +996,7 @@ function run() {
   local scrape_interval="60"
   local enable_kresd="false"
   local enable_consul="false"
-  local enable_consul_esm="false"
+  local enable_esm="false"
   local enable_nomad="false"
   local enable_cloudflared="false"
   local enable_service_discovery="false"
@@ -1012,8 +1037,8 @@ function run() {
       --enable-consul)
         enable_consul=true
         ;;
-      --enable-consul-esm)
-        enable_consul_esm=true
+      --enable-esm)
+        enable_esm=true
         ;;
       --enable-nomad)
         enable_nomad=true
@@ -1075,7 +1100,8 @@ function run() {
     "${enable_consul}" \
     "${enable_nomad}" \
     "${enable_cloudflared}" \
-    "${enable_newrelic}"
+    "${enable_newrelic}" \
+    "${enable_esm}"
 
   if [[ "${enable_service_discovery}" == "true" ]]; then
     write_service_discovery_configuration
