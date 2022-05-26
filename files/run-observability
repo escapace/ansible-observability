@@ -894,37 +894,42 @@ EOF
   )
 
   local -r vector_service_discovery_template=$(
-    cat << EOF
+    cat << 'EOF'
 {{- with node -}}
 {{- range .Services -}}
 {{- if and (index .Meta "prometheus_endpoints") (.Service | regexMatch "-sidecar-proxy" | not) -}}
-{{- scratch.MapSet "vars" .Service ("[]" | parseJSON) -}}
+{{- $service := . -}}
+{{- $value :=  sprig_compact (sprig_uniq (.Meta.prometheus_endpoints | parseJSON)) -}}
+{{- range $value -}}
+{{- scratch.MapSet "endpoints" . $service -}}
 {{- end -}}
-{{- end -}}
-{{- end -}}
-
-{{- with node -}}
-{{- range .Services -}}
-{{- if and (index .Meta "prometheus_endpoints") (.Service | regexMatch "-sidecar-proxy" | not) -}}
-{{- \$value :=  sprig_uniq (sprig_concat ((index (scratch.Get "vars") .Service)) (.Meta.prometheus_endpoints | parseJSON)) -}}
-{{- scratch.MapSet "vars" .Service \$value -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
 
-{{- range sprig_keys (scratch.Get "vars") }}
-# {{ . }}
+{{ range sprig_keys (scratch.Get "endpoints") }}
+{{- $service := index (scratch.Get "endpoints") . -}}
+{{- $name := sprig_list (sprig_kebabcase $service.Service) (sprig_sha256sum .) | sprig_join "-" -}}
+{{- $scrape_interval := sprig_default "${VECTOR_SCRAPE_INTERVAL:-60}" $service.Meta.prometheus_scrape_interval -}}
+{{- $tags := sprig_default "{}" $service.Meta.prometheus_labels | parseJSON -}}
+# {{ $name }}
 
-[sources.intermediate-metrics-consul-{{ sprig_snakecase . }}]
+[sources.intermediate-metrics-consul-{{ $name }}]
 type = "prometheus_scrape"
-endpoints = {{ index (scratch.Get "vars") . | sprig_uniq | toJSON }}
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+endpoints = [{{ . | toJSON }}]
+scrape_interval_secs = {{ $scrape_interval }}
 
-[transforms.metrics-consul-{{ sprig_snakecase . }}]
+[transforms.metrics-consul-{{ $name }}]
 type = "remap"
-inputs = ["intermediate-metrics-consul-{{ sprig_snakecase . }}"]
-source = '.tags.service = "{{ . }}"'
-{{- end }}
+inputs = ["intermediate-metrics-consul-{{ $name }}"]
+source = '''
+.tags.service = "{{ $service.Service }}"
+{{ range $key, $value := $tags -}}{{- if not (sprig_empty $value) -}}
+.tags.{{ sprig_snakecase $key }} = "{{ $value | sprig_toString }}"
+{{ end -}}{{- end -}}
+'''
+
+{{ end }}
 
 EOF
   )
