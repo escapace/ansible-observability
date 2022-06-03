@@ -69,6 +69,7 @@ function print_usage() {
   echo "Options:"
   echo
   wrap "$(
+    echo -e "--role|The instance role, one of \"server\", \"client\" or \"bastion\"."
     echo -e "--amp-workspace-id|Amazon Managed Service for Prometheus Workspace ID."
     echo -e "--cloudwatch-group-name|CloudWatch log group name."
     echo -e "--enable-consul|Collect consul metrics."
@@ -650,22 +651,23 @@ EOF
 }
 
 function write_telemetry_environment() {
-  local -r secrets_bucket_name="${1}"
-  local -r scrape_interval="${2}"
-  local -r cloudwatch_group_name="${3}"
-  local -r enable_newrelic="${4}"
+  local -r role="${1}"
+  local -r secrets_bucket_name="${2}"
+  local -r scrape_interval="${3}"
+  local -r cloudwatch_group_name="${4}"
+  local -r enable_newrelic="${5}"
 
   local -r telemetry_environment_file_path="${TELEMETRY_ENVIRONMENT_FILE_PATH}"
 
   local aws_access_key_id
   local aws_secret_access_key
 
-  aws_access_key_id="$(get_object_value "${secrets_bucket_name}" "telemetry/aws-access-key-id-telemetry")"
-  aws_secret_access_key="$(get_object_value "${secrets_bucket_name}" "telemetry/aws-secret-access-key-telemetry")"
+  aws_access_key_id="$(get_object_value "${secrets_bucket_name}" "${role}/telemetry/aws-access-key-id-telemetry")"
+  aws_secret_access_key="$(get_object_value "${secrets_bucket_name}" "${role}/telemetry/aws-secret-access-key-telemetry")"
 
   local consul_http_token
 
-  consul_http_token="$(get_object_value "${secrets_bucket_name}" "telemetry/consul-acl-token-consul-telemetry")"
+  consul_http_token="$(get_object_value "${secrets_bucket_name}" "${role}/telemetry/consul-acl-token-consul-telemetry")"
 
   local telemetry_newrelic_environment=""
 
@@ -673,8 +675,8 @@ function write_telemetry_environment() {
     local newrelic_account_id=""
     local newrelic_license_key=""
 
-    newrelic_account_id="$(get_object_value "${secrets_bucket_name}" "telemetry/newrelic-account-id")"
-    newrelic_license_key="$(get_object_value "${secrets_bucket_name}" "telemetry/newrelic-license-key")"
+    newrelic_account_id="$(get_object_value "${secrets_bucket_name}" "${role}/telemetry/newrelic-account-id")"
+    newrelic_license_key="$(get_object_value "${secrets_bucket_name}" "${role}/telemetry/newrelic-license-key")"
 
     telemetry_newrelic_environment=$(
       cat << EOF
@@ -995,6 +997,7 @@ function run() {
   source "/etc/sysconfig/ec2-environment"
   set +o allexport
 
+  local role=""
   local secrets_bucket_name=""
   local cloudwatch_group_name=""
   local amp_workspace_id=""
@@ -1011,6 +1014,11 @@ function run() {
     local key="$1"
 
     case "$key" in
+      --role)
+        assert_not_empty "$key" "$2"
+        role="$2"
+        shift
+        ;;
       --scrape-interval)
         assert_not_empty "$key" "$2"
         scrape_interval="$2"
@@ -1074,6 +1082,12 @@ function run() {
   assert_not_empty "--secrets-bucket-name" "${secrets_bucket_name}"
   assert_not_empty "--cloudwatch-group-name" "${cloudwatch_group_name}"
   assert_not_empty "--amp-workspace-id" "${amp_workspace_id}"
+  assert_not_empty "--role" "$role"
+
+  if ! [[ "$role" == "server" || "$role" == "client" || "$role" == "bastion" ]]; then
+    log_error "Unrecognized value for the --role flag."
+    exit 1
+  fi
 
   if ! [[ "${scrape_interval}" =~ ^[0-9]+$ ]]; then
     log_error "--scrape-interval must be a number."
@@ -1092,6 +1106,7 @@ function run() {
   configure_node_exporter
 
   write_telemetry_environment \
+    "${role}" \
     "${secrets_bucket_name}" \
     "${scrape_interval}" \
     "${cloudwatch_group_name}" \
