@@ -693,6 +693,7 @@ license_key: "${newrelic_license_key}"
 enable_process_metrics: false
 selinux_enable_semodule: false
 dns_hostname_resolution: false
+metrics_nfs_sample_rate: -1
 network_interface_filters:
   prefix:
     - dummy
