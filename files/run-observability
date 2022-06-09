@@ -72,11 +72,14 @@ function print_usage() {
     echo -e "--role|The instance role, one of \"server\", \"client\" or \"bastion\"."
     echo -e "--amp-workspace-id|Amazon Managed Service for Prometheus Workspace ID."
     echo -e "--cloudwatch-group-name|CloudWatch log group name."
+    echo -e "--enable-cloudflared|Collect cloudflare tunnel client metrics."
     echo -e "--enable-consul|Collect consul metrics."
+    echo -e "--enable-esm|Collect consul-esm metrics."
     echo -e "--enable-kresd|Collect knot resolver metrics."
     echo -e "--enable-newrelic|New Relic infrastructure agent and log collection."
     echo -e "--enable-nomad|Collect nomad metrics."
     echo -e "--enable-service-discovery|Discover scrape targets running on this node."
+    echo -e "--enable-vault|Collect vault metrics."
     echo -e "--scrape-interval|The interval between scrapes, in seconds."
     echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
     echo -e "--tag|Tag vector logs and metrics. Repeat this option for additional tags."
@@ -171,6 +174,7 @@ function write_vector_configuration() {
   local -r enable_cloudflared="${4}"
   local -r enable_newrelic="${5}"
   local -r enable_esm="${6}"
+  local -r enable_vault="${7}"
 
   local -r vector_configuration_path="/etc/vector/vector.toml"
   local -r vector_telemetry_environment_path="/etc/systemd/system/vector.service.d/telemetry-environment.conf"
@@ -197,6 +201,7 @@ function write_vector_configuration() {
   local vector_configuration_nomad=""
   local vector_configuration_cloudflared=""
   local vector_configuration_esm=""
+  local vector_configuration_vault=""
   local vector_sources_list_array=("\"metrics-amp-proxy\"" "\"metrics-node-exporter\"" "\"metrics-vector\"")
 
   if [[ "${enable_newrelic}" == "true" ]]; then
@@ -336,6 +341,28 @@ EOF
     )
   fi
 
+  if [[ "${enable_vault}" == "true" ]]; then
+    vector_sources_list_array+=("\"metrics-vault\"")
+
+    vector_configuration_vault=$(
+      cat << EOF
+
+## vault
+
+[sources.intermediate-metrics-vault]
+type = "prometheus_scrape"
+endpoints = ["https://localhost:8200/v1/sys/metrics?format=prometheus"]
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+
+[transforms.metrics-vault]
+type = "remap"
+inputs = ["intermediate-metrics-vault"]
+source = '.tags.service = "vault"'
+
+EOF
+    )
+  fi
+
   local vector_sources_list
   vector_sources_list="$(join ", " "${vector_sources_list_array[@]}")"
 
@@ -395,6 +422,7 @@ ${vector_configuration_consul}
 ${vector_configuration_nomad}
 ${vector_configuration_cloudflared}
 ${vector_configuration_esm}
+${vector_configuration_vault}
 
 ## ---
 
@@ -688,7 +716,7 @@ EOF
     local -r newrelic_infra_file_path="/etc/newrelic-infra.yml"
 
     local -r newrelic_infra=$(
-    cat << EOF
+      cat << EOF
 license_key: "${newrelic_license_key}"
 enable_process_metrics: false
 selinux_enable_semodule: false
@@ -1007,6 +1035,7 @@ function run() {
   local enable_consul="false"
   local enable_esm="false"
   local enable_nomad="false"
+  local enable_vault="false"
   local enable_cloudflared="false"
   local enable_service_discovery="false"
   local enable_newrelic="false"
@@ -1056,6 +1085,9 @@ function run() {
         ;;
       --enable-nomad)
         enable_nomad=true
+        ;;
+      --enable-vault)
+        enable_vault=true
         ;;
       --enable-cloudflared)
         enable_cloudflared=true
@@ -1122,7 +1154,8 @@ function run() {
     "${enable_nomad}" \
     "${enable_cloudflared}" \
     "${enable_newrelic}" \
-    "${enable_esm}"
+    "${enable_esm}" \
+    "${enable_vault}"
 
   if [[ "${enable_service_discovery}" == "true" ]]; then
     write_service_discovery_configuration
