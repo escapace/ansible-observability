@@ -1162,18 +1162,23 @@ function run() {
   fi
 
   systemctl daemon-reload
-  systemctl enable node-exporter vector amp-proxy
-  systemctl restart node-exporter amp-proxy vector
+
+  local services=()
+
+  services+=("node-exporter.service")
+  services+=("vector.service")
+  services+=("amp-proxy.service")
 
   if [[ "${enable_service_discovery}" == "true" ]]; then
-    systemctl enable vector-service-discovery
-    systemctl restart vector-service-discovery
+    services+=("vector-service-discovery.service")
   fi
 
   if [[ "${enable_newrelic}" == "true" ]]; then
-    systemctl enable newrelic-infra
-    systemctl restart newrelic-infra
+    services+=("newrelic-infra.service")
   fi
+
+  systemctl --no-block enable "${services[@]}"
+  systemctl --no-block restart "${services[@]}"
 }
 
 run "$@"
