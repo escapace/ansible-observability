@@ -661,8 +661,10 @@ EOF
 [Unit]
 After=consul-online.target
 Wants=consul-online.target
-After=nomad.service
-Wants=nomad.service
+After=vault-online.target
+Wants=vault-online.target
+After=nomad-online.target
+Wants=nomad-online.target
 After=kresd.target
 Wants=kresd.target
 After=node-exporter.service
@@ -909,6 +911,8 @@ After=network-online.target
 Wants=network-online.target
 After=vector.service
 Wants=vector.service
+After=consul-online.target
+Wants=consul-online.target
 
 [Service]
 User=vector
