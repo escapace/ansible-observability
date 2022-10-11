@@ -631,7 +631,7 @@ create_missing_stream = true
 group_name = "\${AWS_CLOUDWATCH_GROUP_NAME}"
 compression = "gzip"
 region = "${EC2_INSTANCE_REGION}"
-encoding = "json"
+encoding.codec = "json"
 stream_name = "{{ instance_id }}"
 request.concurrency = "adaptive"
 inputs = [
@@ -990,7 +990,7 @@ function configure_node_exporter() {
     '--collector.cpu'
     '--collector.disable-defaults'
     '--collector.diskstats'
-    '--collector.diskstats.ignored-devices="^(dm-|ram|loop|fd|(h|s|v|xv)d[a-z]|nvme[0-9]+n[0-9]+p)[0-9]+\$"'
+    '--collector.diskstats.device-exclude="^(dm-|ram|loop|fd|(h|s|v|xv)d[a-z]|nvme[0-9]+n[0-9]+p)[0-9]+\$"'
     '--collector.entropy'
     '--collector.filesystem'
     '--collector.filesystem.fs-types-exclude="^(tmpfs|systemd-1|efivarfs|autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)\$"'
