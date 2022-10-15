@@ -835,6 +835,10 @@ static_resources:
                         - prefix: x-forwarded
                         - prefix: cf-
                         - prefix: sec-
+                        - exact: upgrade-insecure-requests
+                        - exact: user-agent
+                        - exact: cookie
+                        - exact: priority
                         - exact: cdn-loop
                         - exact: x-amzn-trace-id
 
