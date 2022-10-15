@@ -1,10 +1,10 @@
 ---
 
-- include_tasks: vector.yml
+- ansible.builtin.include_tasks: vector.yml
   tags:
     - run-observability
 
-- include_tasks: amp-proxy.yml
+- ansible.builtin.include_tasks: amp-proxy.yml
   tags:
     - run-observability
 
