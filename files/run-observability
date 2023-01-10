@@ -30,15 +30,15 @@ function wrap() {
       width=$((cols - length - 4))
     fi
 
-    echo -e "${strings}" \
-      | fold -s -w "${width}" \
-      | sed -e "/--/! s|^| \||g" \
-      | column -t -s '|' \
-      | sed 's/^/  /'
+    echo -e "${strings}" |
+      fold -s -w "${width}" |
+      sed -e "/--/! s|^| \||g" |
+      column -t -s '|' |
+      sed 's/^/  /'
   else
     local lines
     local line
-    readarray -t lines <<< "${strings}"
+    readarray -t lines <<<"${strings}"
     local option
     local description
 
@@ -206,7 +206,7 @@ function write_vector_configuration() {
 
   if [[ "${enable_newrelic}" == "true" ]]; then
     vector_configuration_newrelic=$(
-      cat << EOF
+      cat <<EOF
 [sinks.logs-newrelic-sink]
 type = "new_relic"
 inputs = [
@@ -230,7 +230,7 @@ EOF
     vector_sources_list_array+=("\"metrics-consul*\"")
 
     vector_configuration_consul=$(
-      cat << EOF
+      cat <<EOF
 
 ## CONSUL
 
@@ -256,7 +256,7 @@ EOF
     vector_sources_list_array+=("\"metrics-esm\"")
 
     vector_configuration_esm=$(
-      cat << EOF
+      cat <<EOF
 
 ## esm
 
@@ -278,7 +278,7 @@ EOF
     vector_sources_list_array+=("\"metrics-kresd\"")
 
     vector_configuration_kresd=$(
-      cat << EOF
+      cat <<EOF
 
 ## KRESD
 
@@ -300,7 +300,7 @@ EOF
     vector_sources_list_array+=("\"metrics-nomad\"")
 
     vector_configuration_nomad=$(
-      cat << EOF
+      cat <<EOF
 
 ## NOMAD
 
@@ -323,7 +323,7 @@ EOF
     vector_sources_list_array+=("\"metrics-cloudflared\"")
 
     vector_configuration_cloudflared=$(
-      cat << EOF
+      cat <<EOF
 
 ## cloudflared
 
@@ -345,7 +345,7 @@ EOF
     vector_sources_list_array+=("\"metrics-vault\"")
 
     vector_configuration_vault=$(
-      cat << EOF
+      cat <<EOF
 
 ## vault
 
@@ -367,7 +367,7 @@ EOF
   vector_sources_list="$(join ", " "${vector_sources_list_array[@]}")"
 
   local -r vector_configuration=$(
-    cat << EOF
+    cat <<EOF
 [healthchecks]
 enabled = true
 require_healthy = false
@@ -434,6 +434,7 @@ source = '''
 .tags.instance_type = get_env_var!("EC2_INSTANCE_TYPE")
 .tags.availability_zone = get_env_var!("EC2_INSTANCE_AVAILABILITY_ZONE")
 del(.tags.host)
+.tags.host = get_hostname!()
 ${metrics_metadata_tags}
 '''
 inputs = [${vector_sources_list}]
@@ -645,7 +646,7 @@ EOF
 
   log_info "Writing ${vector_configuration_path}"
 
-  echo -e "${vector_configuration}" > "${vector_configuration_path}"
+  echo -e "${vector_configuration}" >"${vector_configuration_path}"
 
   chown vector:vector "${vector_configuration_path}"
   chmod 640 "${vector_configuration_path}"
@@ -657,7 +658,7 @@ EOF
   log_info "Writing ${vector_telemetry_environment_path}"
 
   local -r vector_telemetry_environment=$(
-    cat << EOF
+    cat <<EOF
 [Unit]
 After=consul-online.target
 Wants=consul-online.target
@@ -675,7 +676,7 @@ EnvironmentFile=${TELEMETRY_ENVIRONMENT_FILE_PATH}
 EOF
   )
 
-  echo -e "${vector_telemetry_environment}" > "${vector_telemetry_environment_path}"
+  echo -e "${vector_telemetry_environment}" >"${vector_telemetry_environment_path}"
   chown root:root "${vector_telemetry_environment_path}"
   chmod 644 "${vector_telemetry_environment_path}"
 }
@@ -709,7 +710,7 @@ function write_telemetry_environment() {
     newrelic_license_key="$(get_object_value "${secrets_bucket_name}" "${role}/telemetry/newrelic-license-key")"
 
     telemetry_newrelic_environment=$(
-      cat << EOF
+      cat <<EOF
 NEWRELIC_ACCOUNT_ID=${newrelic_account_id}
 NEWRELIC_LICENSE_KEY=${newrelic_license_key}
 EOF
@@ -718,7 +719,7 @@ EOF
     local -r newrelic_infra_file_path="/etc/newrelic-infra.yml"
 
     local -r newrelic_infra=$(
-      cat << EOF
+      cat <<EOF
 license_key: "${newrelic_license_key}"
 enable_process_metrics: false
 selinux_enable_semodule: false
@@ -744,14 +745,14 @@ EOF
 
     log_info "Writing ${newrelic_infra_file_path}"
 
-    echo -e "${newrelic_infra}" > "${newrelic_infra_file_path}"
+    echo -e "${newrelic_infra}" >"${newrelic_infra_file_path}"
 
     chown root:root "${newrelic_infra_file_path}"
     chmod 640 "${newrelic_infra_file_path}"
   fi
 
   local -r telemetry_environment=$(
-    cat << EOF
+    cat <<EOF
 AWS_ACCESS_KEY_ID=${aws_access_key_id}
 AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}
 AWS_CLOUDWATCH_GROUP_NAME=${cloudwatch_group_name}
@@ -763,7 +764,7 @@ EOF
 
   log_info "Writing ${telemetry_environment_file_path}"
 
-  echo -e "${telemetry_environment}" > "${telemetry_environment_file_path}"
+  echo -e "${telemetry_environment}" >"${telemetry_environment_file_path}"
 
   chown root:root "${telemetry_environment_file_path}"
   chmod 640 "${telemetry_environment_file_path}"
@@ -780,7 +781,7 @@ function write_amp_proxy_configuration() {
   local -r amp_proxy_service_configuration_path="/etc/systemd/system/amp-proxy.service"
 
   local -r amp_proxy_configuration=$(
-    cat << EOF
+    cat <<EOF
 admin:
   address:
     socket_address: { address: "::1", port_value: 9901 }
@@ -867,7 +868,7 @@ EOF
   )
 
   local -r amp_proxy_service_configuration=$(
-    cat << EOF
+    cat <<EOF
 [Unit]
 Description=Amazon Managed Service for Prometheus Signing Proxy
 After=network-online.target
@@ -893,11 +894,11 @@ EOF
   log_info "Writing ${amp_proxy_configuration_path}"
   log_info "Writing ${amp_proxy_service_configuration_path}"
 
-  echo -e "$amp_proxy_configuration" > "$amp_proxy_configuration_path"
+  echo -e "$amp_proxy_configuration" >"$amp_proxy_configuration_path"
   chown amp-proxy:amp-proxy "${amp_proxy_configuration_path}"
   chmod 644 "${amp_proxy_configuration_path}"
 
-  echo -e "$amp_proxy_service_configuration" > "$amp_proxy_service_configuration_path"
+  echo -e "$amp_proxy_service_configuration" >"$amp_proxy_service_configuration_path"
   chown root:root "${amp_proxy_service_configuration_path}"
   chmod 644 "${amp_proxy_service_configuration_path}"
 }
@@ -908,7 +909,7 @@ function write_service_discovery_configuration() {
   local -r vector_service_discovery_configuration_path="/etc/vector/service-disccovery.toml"
 
   local -r vector_service_discovery_service=$(
-    cat << EOF
+    cat <<EOF
 [Unit]
 Description=Vector Service Discovery
 After=network-online.target
@@ -936,7 +937,7 @@ EOF
   )
 
   local -r vector_service_discovery_template=$(
-    cat << 'EOF'
+    cat <<'EOF'
 {{- with node -}}
 {{- range .Services -}}
 {{- if and (index .Meta "prometheus_endpoints") (.Service | regexMatch "-sidecar-proxy" | not) -}}
@@ -976,11 +977,11 @@ source = '''
 EOF
   )
 
-  echo -e "$vector_service_discovery_service" > "$vector_service_discovery_service_path"
+  echo -e "$vector_service_discovery_service" >"$vector_service_discovery_service_path"
   chown root:root "${vector_service_discovery_service_path}"
   chmod 644 "${vector_service_discovery_service_path}"
 
-  echo -e "$vector_service_discovery_template" > "$vector_service_discovery_template_path"
+  echo -e "$vector_service_discovery_template" >"$vector_service_discovery_template_path"
   chown vector:vector "${vector_service_discovery_template_path}"
   chmod 640 "${vector_service_discovery_template_path}"
 }
@@ -1010,7 +1011,7 @@ function configure_node_exporter() {
     '--collector.schedstat'
     '--collector.stat'
     '--collector.systemd'
-    '--collector.systemd.unit-include="(nomad.service|consul.service|amp-proxy.service|vector.service|kresd@.+|consul-terraform-sync.service|sshd.service|vector-service-discovery.service|ferm.service|ec2-environment.service|storage-setup.service|docker.service|consul-online.service)"'
+    '--collector.systemd.unit-include="(nomad.service|consul.service|amp-proxy.service|vector.service|kresd@.+|consul-terraform-sync.service|sshd.service|vector-service-discovery.service|ferm.service|ec2-environment.service|storage-setup.service|docker.service|consul-online.service|vault.service|vault-online.service|node-exporter.service)"'
     '--collector.timex'
     '--collector.vmstat'
     '--web.listen-address="[::1]:9100"'
@@ -1019,7 +1020,7 @@ function configure_node_exporter() {
   local node_exporter_options
   node_exporter_options="OPTIONS=$(join " " "${node_exporter_options_array[@]}")"
 
-  echo -e "$node_exporter_options" > "${node_exporter_options_path}"
+  echo -e "$node_exporter_options" >"${node_exporter_options_path}"
   chown node-exporter:node-exporter "${node_exporter_options_path}"
   chmod 640 "${node_exporter_options_path}"
 }
@@ -1055,69 +1056,69 @@ function run() {
     local key="$1"
 
     case "$key" in
-      --role)
-        assert_not_empty "$key" "$2"
-        role="$2"
-        shift
-        ;;
-      --scrape-interval)
-        assert_not_empty "$key" "$2"
-        scrape_interval="$2"
-        shift
-        ;;
-      --secrets-bucket-name)
-        assert_not_empty "$key" "$2"
-        secrets_bucket_name="$2"
-        shift
-        ;;
-      --amp-workspace-id)
-        assert_not_empty "$key" "$2"
-        amp_workspace_id="$2"
-        shift
-        ;;
-      --cloudwatch-group-name)
-        assert_not_empty "$key" "$2"
-        cloudwatch_group_name="$2"
-        shift
-        ;;
-      --tag)
-        assert_not_empty "$key" "$2"
-        parse_tag "${2}"
-        shift
-        ;;
-      --enable-kresd)
-        enable_kresd=true
-        ;;
-      --enable-consul)
-        enable_consul=true
-        ;;
-      --enable-esm)
-        enable_esm=true
-        ;;
-      --enable-nomad)
-        enable_nomad=true
-        ;;
-      --enable-vault)
-        enable_vault=true
-        ;;
-      --enable-cloudflared)
-        enable_cloudflared=true
-        ;;
-      --enable-service-discovery)
-        enable_service_discovery=true
-        ;;
-      --enable-newrelic)
-        enable_newrelic=true
-        ;;
-      --help)
-        print_usage
-        exit
-        ;;
-      *)
-        log_error "Unrecognized argument: $key"
-        print_usage
-        exit 1
-        ;;
+    --role)
+      assert_not_empty "$key" "$2"
+      role="$2"
+      shift
+      ;;
+    --scrape-interval)
+      assert_not_empty "$key" "$2"
+      scrape_interval="$2"
+      shift
+      ;;
+    --secrets-bucket-name)
+      assert_not_empty "$key" "$2"
+      secrets_bucket_name="$2"
+      shift
+      ;;
+    --amp-workspace-id)
+      assert_not_empty "$key" "$2"
+      amp_workspace_id="$2"
+      shift
+      ;;
+    --cloudwatch-group-name)
+      assert_not_empty "$key" "$2"
+      cloudwatch_group_name="$2"
+      shift
+      ;;
+    --tag)
+      assert_not_empty "$key" "$2"
+      parse_tag "${2}"
+      shift
+      ;;
+    --enable-kresd)
+      enable_kresd=true
+      ;;
+    --enable-consul)
+      enable_consul=true
+      ;;
+    --enable-esm)
+      enable_esm=true
+      ;;
+    --enable-nomad)
+      enable_nomad=true
+      ;;
+    --enable-vault)
+      enable_vault=true
+      ;;
+    --enable-cloudflared)
+      enable_cloudflared=true
+      ;;
+    --enable-service-discovery)
+      enable_service_discovery=true
+      ;;
+    --enable-newrelic)
+      enable_newrelic=true
+      ;;
+    --help)
+      print_usage
+      exit
+      ;;
+    *)
+      log_error "Unrecognized argument: $key"
+      print_usage
+      exit 1
+      ;;
     esac
 
     shift
