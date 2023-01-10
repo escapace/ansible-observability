@@ -1011,7 +1011,7 @@ function configure_node_exporter() {
     '--collector.schedstat'
     '--collector.stat'
     '--collector.systemd'
-    '--collector.systemd.unit-include="(nomad.service|consul.service|consul-esm.service|amp-proxy.service|vector.service|kresd@.+|consul-terraform-sync.service|sshd.service|vector-service-discovery.service|ferm.service|ec2-environment.service|storage-setup.service|docker.service|consul-online.service|vault.service|vault-online.service|node-exporter.service)"'
+    '--collector.systemd.unit-include="(nomad.service|consul.service|consul-esm.service|amp-proxy.service|vector.service|kresd@.+|consul-terraform-sync.service|sshd.service|vector-service-discovery.service|ferm.service|ec2-environment.service|storage-setup.service|docker.service|consul-online.service|vault.service|vault-online.service|node-exporter.service|cloudflared.service|tailscaled.service)"'
     '--collector.timex'
     '--collector.vmstat'
     '--web.listen-address="[::1]:9100"'
