@@ -62,6 +62,8 @@
 
 - name: install node-exporter
   when: observability_current_node_exporter_version.failed or observability_current_node_exporter_version['content'] | b64decode != observability_node_exporter_archive
+  tags:
+    - node-exporter
   block:
     - name: download node-exporter
       ansible.builtin.get_url:
@@ -109,8 +111,6 @@
         owner: root
         group: root
         mode: '0644'
-  tags:
-    - node-exporter
 
 - name: create a node-exporter symbolic link
   ansible.builtin.file:
@@ -124,7 +124,12 @@
     - node-exporter
 
 - name: create node-exporter service
-  ansible.builtin.template: src=templates/node-exporter.service.j2 dest=/usr/lib/systemd/system/node-exporter.service owner=root group=root mode=0644
+  ansible.builtin.template:
+    src: templates/node-exporter.service.j2
+    dest: /usr/lib/systemd/system/node-exporter.service
+    owner: root
+    group: root
+    mode: 0644
   notify:
     - observability daemon-reload
   tags:
