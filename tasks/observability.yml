@@ -1,5 +1,7 @@
 ---
 
+# TODO: remove rsyslog, logrotate &c.
+
 - ansible.builtin.include_tasks: vector.yml
   tags:
     - run-observability
