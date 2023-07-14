@@ -246,7 +246,10 @@ strategy = "bearer"
 [transforms.metrics-consul]
 type = "remap"
 inputs = ["intermediate-metrics-consul"]
-source = '.tags.service = "consul"'
+source = '''
+.tags.service = "consul"
+.tags.tenant  = "infrastructure"
+'''
 
 EOF
     )
@@ -268,7 +271,10 @@ scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 [transforms.metrics-esm]
 type = "remap"
 inputs = ["intermediate-metrics-esm"]
-source = '.tags.service = "esm"'
+source = '''
+.tags.service = "esm"
+.tags.tenant  = "infrastructure"
+'''
 
 EOF
     )
@@ -290,7 +296,10 @@ scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 [transforms.metrics-kresd]
 type = "remap"
 inputs = ["intermediate-metrics-kresd"]
-source = '.tags.service = "kresd"'
+source = '''
+.tags.service = "kresd"
+.tags.tenant  = "infrastructure"
+'''
 
 EOF
     )
@@ -313,7 +322,10 @@ scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 [transforms.metrics-nomad]
 type = "remap"
 inputs = ["intermediate-metrics-nomad"]
-source = '.tags.service = "nomad"'
+source = '''
+.tags.service = "nomad"
+.tags.tenant  = "infrastructure"
+'''
 
 EOF
     )
@@ -335,7 +347,10 @@ scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 [transforms.metrics-cloudflared]
 type = "remap"
 inputs = ["intermediate-metrics-cloudflared"]
-source = '.tags.service = "cloudflared"'
+source = '''
+.tags.service = "cloudflared"
+.tags.tenant  = "infrastructure"
+'''
 
 EOF
     )
@@ -357,7 +372,10 @@ scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 [transforms.metrics-vault]
 type = "remap"
 inputs = ["intermediate-metrics-vault"]
-source = '.tags.service = "vault"'
+source = '''
+.tags.service = "vault"
+.tags.tenant  = "infrastructure"
+'''
 
 EOF
     )
@@ -392,7 +410,10 @@ scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 [transforms.metrics-node-exporter]
 type = "remap"
 inputs = ["intermediate-metrics-node-exporter"]
-source = '.tags.service = "node-exporter"'
+source = '''
+.tags.service = "node-exporter"
+.tags.tenant  = "infrastructure"
+'''
 
 ## VECTOR
 
@@ -403,7 +424,10 @@ scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 [transforms.metrics-vector]
 type = "remap"
 inputs = ["intermediate-metrics-vector"]
-source = '.tags.service = "vector"'
+source = '''
+.tags.service = "vector"
+.tags.tenant  = "infrastructure"
+'''
 
 ## AMP-PROXY
 
@@ -415,7 +439,10 @@ scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
 [transforms.metrics-amp-proxy]
 type = "remap"
 inputs = ["intermediate-metrics-amp-proxy"]
-source = '.tags.service = "amp-proxy"'
+source = '''
+.tags.service = "amp-proxy"
+.tags.tenant  = "infrastructure"
+'''
 
 ${vector_configuration_kresd}
 ${vector_configuration_consul}
@@ -966,7 +993,6 @@ scrape_interval_secs = {{ $scrape_interval }}
 type = "remap"
 inputs = ["intermediate-metrics-consul-{{ $name }}"]
 source = '''
-.tags.service = "{{ $service.Service }}"
 {{ range $key, $value := $tags -}}{{- if not (sprig_empty $value) -}}
 .tags.{{ sprig_snakecase $key }} = "{{ $value | sprig_toString }}"
 {{ end -}}{{- end -}}
