@@ -237,7 +237,7 @@ EOF
 [sources.intermediate-metrics-consul]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:8500/v1/agent/metrics?format=prometheus"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
 
 [sources.intermediate-metrics-consul.auth]
 token = "\${CONSUL_HTTP_TOKEN}"
@@ -266,7 +266,7 @@ EOF
 [sources.intermediate-metrics-esm]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:8559/metrics"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
 
 [transforms.metrics-esm]
 type = "remap"
@@ -291,7 +291,7 @@ EOF
 [sources.intermediate-metrics-kresd]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:8453/metrics"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
 
 [transforms.metrics-kresd]
 type = "remap"
@@ -317,7 +317,7 @@ EOF
 type = "prometheus_scrape"
 # TODO: vector fails tls verification with [::1]
 endpoints = ["https://localhost:4646/v1/metrics?format=prometheus"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
 
 [transforms.metrics-nomad]
 type = "remap"
@@ -342,7 +342,7 @@ EOF
 [sources.intermediate-metrics-cloudflared]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:9301/metrics"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
 
 [transforms.metrics-cloudflared]
 type = "remap"
@@ -367,7 +367,7 @@ EOF
 [sources.intermediate-metrics-vault]
 type = "prometheus_scrape"
 endpoints = ["https://localhost:8200/v1/sys/metrics?format=prometheus"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
 
 [transforms.metrics-vault]
 type = "remap"
@@ -405,7 +405,7 @@ current_boot_only = true
 [sources.intermediate-metrics-node-exporter]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:9100/metrics"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
 
 [transforms.metrics-node-exporter]
 type = "remap"
@@ -419,7 +419,7 @@ source = '''
 
 [sources.intermediate-metrics-vector]
 type = "internal_metrics"
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
 
 [transforms.metrics-vector]
 type = "remap"
@@ -434,7 +434,7 @@ source = '''
 [sources.intermediate-metrics-amp-proxy]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:9901/stats/prometheus"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-60}
+scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
 
 [transforms.metrics-amp-proxy]
 type = "remap"
@@ -483,6 +483,7 @@ inputs = [
 
 ## ---
 
+# https://github.com/hashicorp/consul/blob/main/ui/packages/consul-ui/vendor/metrics-providers/prometheus.js
 [transforms.intermediate-metrics-filter]
 type = "filter"
 inputs = [
@@ -980,7 +981,7 @@ EOF
 {{ range sprig_keys (scratch.Get "endpoints") }}
 {{- $service := index (scratch.Get "endpoints") . -}}
 {{- $name := sprig_list (sprig_kebabcase $service.Service) (sprig_sha256sum .) | sprig_join "-" -}}
-{{- $scrape_interval := sprig_default "${VECTOR_SCRAPE_INTERVAL:-60}" $service.Meta.prometheus_scrape_interval -}}
+{{- $scrape_interval := sprig_default "${VECTOR_SCRAPE_INTERVAL:-120}" $service.Meta.prometheus_scrape_interval -}}
 {{- $tags := sprig_default "{}" $service.Meta.prometheus_labels | parseJSON -}}
 # {{ $name }}
 
@@ -1068,7 +1069,7 @@ function run() {
   local secrets_bucket_name=""
   local cloudwatch_group_name=""
   local amp_workspace_id=""
-  local scrape_interval="60"
+  local scrape_interval="120"
   local enable_kresd="false"
   local enable_consul="false"
   local enable_esm="false"
