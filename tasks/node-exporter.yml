@@ -95,6 +95,11 @@
         path: "/opt/node-exporter/bin/node_exporter"
         state: absent
 
+    - name: remove archive
+      ansible.builtin.file:
+        path: "/tmp/{{ observability_node_exporter_archive }}"
+        state: absent
+
     - name: chcon node-exporter binary
       ansible.builtin.file:
         path: "/opt/node-exporter/bin/node-exporter"
