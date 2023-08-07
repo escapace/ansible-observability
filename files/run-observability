@@ -76,7 +76,6 @@ function print_usage() {
     echo -e "--enable-consul|Collect consul metrics."
     echo -e "--enable-esm|Collect consul-esm metrics."
     echo -e "--enable-kresd|Collect knot resolver metrics."
-    echo -e "--enable-newrelic|New Relic infrastructure agent and log collection."
     echo -e "--enable-nomad|Collect nomad metrics."
     echo -e "--enable-service-discovery|Discover scrape targets running on this node."
     echo -e "--enable-vault|Collect vault metrics."
@@ -172,9 +171,8 @@ function write_vector_configuration() {
   local -r enable_consul="${2}"
   local -r enable_nomad="${3}"
   local -r enable_cloudflared="${4}"
-  local -r enable_newrelic="${5}"
-  local -r enable_esm="${6}"
-  local -r enable_vault="${7}"
+  local -r enable_esm="${5}"
+  local -r enable_vault="${6}"
 
   local -r vector_configuration_path="/etc/vector/vector.toml"
   local -r vector_telemetry_environment_path="/etc/systemd/system/vector.service.d/telemetry-environment.conf"
@@ -195,7 +193,6 @@ function write_vector_configuration() {
     done
   )
 
-  local vector_configuration_newrelic=""
   local vector_configuration_kresd=""
   local vector_configuration_consul=""
   local vector_configuration_nomad=""
@@ -203,28 +200,6 @@ function write_vector_configuration() {
   local vector_configuration_esm=""
   local vector_configuration_vault=""
   local vector_sources_list_array=("\"metrics-amp-proxy\"" "\"metrics-node-exporter\"" "\"metrics-vector\"")
-
-  if [[ "${enable_newrelic}" == "true" ]]; then
-    vector_configuration_newrelic=$(
-      cat <<EOF
-[sinks.logs-newrelic-sink]
-type = "new_relic"
-inputs = [
-  "intermediate-logs-enrich"
-]
-
-license_key = "\${NEWRELIC_LICENSE_KEY}"
-account_id = "\${NEWRELIC_ACCOUNT_ID}"
-region = "us"
-compression = "gzip"
-api = "logs"
-batch.max_events = 50
-healthcheck.enabled = false
-request.concurrency = "adaptive"
-EOF
-    )
-
-  fi
 
   if [[ "${enable_consul}" == "true" ]]; then
     vector_sources_list_array+=("\"metrics-consul*\"")
@@ -667,8 +642,6 @@ inputs = [
   "intermediate-logs-enrich"
 ]
 
-$vector_configuration_newrelic
-
 EOF
   )
 
@@ -714,7 +687,6 @@ function write_telemetry_environment() {
   local -r secrets_bucket_name="${2}"
   local -r scrape_interval="${3}"
   local -r cloudwatch_group_name="${4}"
-  local -r enable_newrelic="${5}"
 
   local -r telemetry_environment_file_path="${TELEMETRY_ENVIRONMENT_FILE_PATH}"
 
@@ -728,57 +700,6 @@ function write_telemetry_environment() {
 
   consul_http_token="$(get_object_value "${secrets_bucket_name}" "${role}/telemetry/consul-acl-token-consul-telemetry")"
 
-  local telemetry_newrelic_environment=""
-
-  if [[ "${enable_newrelic}" == "true" ]]; then
-    local newrelic_account_id=""
-    local newrelic_license_key=""
-
-    newrelic_account_id="$(get_object_value "${secrets_bucket_name}" "${role}/telemetry/newrelic-account-id")"
-    newrelic_license_key="$(get_object_value "${secrets_bucket_name}" "${role}/telemetry/newrelic-license-key")"
-
-    telemetry_newrelic_environment=$(
-      cat <<EOF
-NEWRELIC_ACCOUNT_ID=${newrelic_account_id}
-NEWRELIC_LICENSE_KEY=${newrelic_license_key}
-EOF
-    )
-
-    local -r newrelic_infra_file_path="/etc/newrelic-infra.yml"
-
-    local -r newrelic_infra=$(
-      cat <<EOF
-license_key: "${newrelic_license_key}"
-enable_process_metrics: false
-selinux_enable_semodule: false
-dns_hostname_resolution: false
-metrics_nfs_sample_rate: -1
-network_interface_filters:
-  prefix:
-    - dummy
-    - lo
-    - vmnet
-    - sit
-    - tun
-    - tap
-    - vmnet
-    - veth
-    - docker
-    - nomad
-  index-1:
-    - tun
-    - tap
-EOF
-    )
-
-    log_info "Writing ${newrelic_infra_file_path}"
-
-    echo -e "${newrelic_infra}" >"${newrelic_infra_file_path}"
-
-    chown root:root "${newrelic_infra_file_path}"
-    chmod 640 "${newrelic_infra_file_path}"
-  fi
-
   local -r telemetry_environment=$(
     cat <<EOF
 AWS_ACCESS_KEY_ID=${aws_access_key_id}
@@ -786,7 +707,6 @@ AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}
 AWS_CLOUDWATCH_GROUP_NAME=${cloudwatch_group_name}
 VECTOR_SCRAPE_INTERVAL=${scrape_interval}
 CONSUL_HTTP_TOKEN=${consul_http_token}
-${telemetry_newrelic_environment}
 EOF
   )
 
@@ -1077,7 +997,6 @@ function run() {
   local enable_vault="false"
   local enable_cloudflared="false"
   local enable_service_discovery="false"
-  local enable_newrelic="false"
 
   while [[ $# -gt 0 ]]; do
     local key="$1"
@@ -1134,9 +1053,6 @@ function run() {
     --enable-service-discovery)
       enable_service_discovery=true
       ;;
-    --enable-newrelic)
-      enable_newrelic=true
-      ;;
     --help)
       print_usage
       exit
@@ -1181,8 +1097,7 @@ function run() {
     "${role}" \
     "${secrets_bucket_name}" \
     "${scrape_interval}" \
-    "${cloudwatch_group_name}" \
-    "${enable_newrelic}"
+    "${cloudwatch_group_name}"
 
   write_amp_proxy_configuration \
     "${amp_workspace_id}"
@@ -1192,7 +1107,6 @@ function run() {
     "${enable_consul}" \
     "${enable_nomad}" \
     "${enable_cloudflared}" \
-    "${enable_newrelic}" \
     "${enable_esm}" \
     "${enable_vault}"
 
@@ -1210,10 +1124,6 @@ function run() {
 
   if [[ "${enable_service_discovery}" == "true" ]]; then
     services+=("vector-service-discovery.service")
-  fi
-
-  if [[ "${enable_newrelic}" == "true" ]]; then
-    services+=("newrelic-infra.service")
   fi
 
   systemctl --no-block enable "${services[@]}"
