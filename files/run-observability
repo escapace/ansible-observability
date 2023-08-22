@@ -19,15 +19,17 @@ function wrap() {
   local length
   local cols
   local width
+  local sep="|"
 
   length="$(echo -n "${strings}" | awk -F '|' '{print $1}' | awk '{ print length }' | sort -n | tail -1)"
   cols="$(tput cols)"
+  local cols_minus_four="$((cols - 4))"
 
-  if [[ $(((cols - 4) / length)) -ge 2 ]]; then
-    if [[ $((cols - length - 4)) -ge 80 ]]; then
-      width=80
+  if [[ "$((cols_minus_four / length))" -ge 2 ]]; then
+    if [[ "$((cols - length - 4))" -ge 80 ]]; then
+      width="80"
     else
-      width=$((cols - length - 4))
+      width="$((cols - length - 4))"
     fi
 
     echo -e "${strings}" |
@@ -45,12 +47,12 @@ function wrap() {
     if [[ "${cols}" -ge 80 ]]; then
       width="78"
     else
-      width=$((cols - 2))
+      width="$((cols - 2))"
     fi
 
     for line in "${lines[@]}"; do
-      option="${line%%|*}"
-      description=${line#*|}
+      option="${line%%$sep*}"
+      description="${line#*$sep}"
 
       echo "${option}"
       echo
@@ -958,7 +960,7 @@ function configure_node_exporter() {
     '--collector.schedstat'
     '--collector.stat'
     '--collector.systemd'
-    '--collector.systemd.unit-include="(nomad.service|consul.service|consul-esm.service|amp-proxy.service|vector.service|kresd@.+|consul-terraform-sync.service|sshd.service|vector-service-discovery.service|ferm.service|ec2-environment.service|storage-setup.service|docker.service|consul-online.service|vault.service|vault-online.service|node-exporter.service|cloudflared.service|tailscaled.service)"'
+    '--collector.systemd.unit-include="(amp-proxy.service|chronyd.service|cloudflared.service|consul-bootstrap.service|consul-esm.service|consul-online.service|consul-snapshot.service|consul-terraform-sync.service|consul.service|containerd.service|docker.service|ec2-environment.service|ferm.service|kres-cache-gc.service|kresd@.+|node-exporter.service|nomad-bootstrap.service|nomad-online.service|nomad-snapshot.service|nomad.service|sshd.service|storage-setup.service|systemd-networkd.service|tailscaled.service|vault-bootstrap.service|vault-online.service|vault-snapshot.service|vault.service|vector-service-discovery.service|vector.service)"'
     '--collector.timex'
     '--collector.vmstat'
     '--web.listen-address="[::1]:9100"'
