@@ -1,7 +1,9 @@
 ---
 # defaults file for escapace.observability
 
-observability_vector_version: 0.31.0
+# https://github.com/vectordotdev/vector
+observability_vector_version: 0.33.0
+# https://github.com/prometheus/node_exporter
 observability_node_exporter_version: 1.6.1
 
 observability_role_debug: false
