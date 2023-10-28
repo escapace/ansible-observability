@@ -27,6 +27,19 @@
     path: /etc/vector/examples
     state: absent
 
+- name: delete vector example
+  ansible.builtin.file:
+    path: /etc/vector/vector.yaml
+    state: absent
+
+- name: create directory for configuration drop-ins
+  ansible.builtin.file:
+    path: /etc/vector/vector.d
+    owner: vector
+    group: vector
+    state: directory
+    mode: 0750
+
 - name: vector systemd drop-in
   ansible.builtin.template:
     src: templates/vector-service-ec2-environment.conf.j2
@@ -53,7 +66,7 @@
   ansible.builtin.lineinfile:
     path: /usr/lib/systemd/system/vector.service
     regexp: '^ExecStart='
-    line: "ExecStart=/usr/bin/vector -qq --watch-config --config-dir /etc/vector"
+    line: "ExecStart=/usr/bin/vector -qq --watch-config --config /etc/vector/vector.toml --config-dir /etc/vector/vector.d"
     insertafter: '^ExecStartPre='
     owner: root
     group: root

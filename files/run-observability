@@ -855,8 +855,8 @@ EOF
 
 function write_service_discovery_configuration() {
   local -r vector_service_discovery_service_path="/etc/systemd/system/vector-service-discovery.service"
-  local -r vector_service_discovery_template_path="/etc/vector/service-disccovery.ctmpl"
-  local -r vector_service_discovery_configuration_path="/etc/vector/service-disccovery.toml"
+  local -r vector_service_discovery_template_path="/etc/vector/vector.d/service-disccovery.ctmpl"
+  local -r vector_service_discovery_configuration_path="/etc/vector/vector.d/service-disccovery.toml"
 
   local -r vector_service_discovery_service=$(
     cat <<EOF
