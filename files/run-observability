@@ -872,6 +872,7 @@ Wants=consul-online.target
 [Service]
 User=vector
 Group=vector
+SuccessExitStatus=12
 EnvironmentFile=${TELEMETRY_ENVIRONMENT_FILE_PATH}
 ExecStart=consul-template -log-level=err -reload-signal=SIGHUP -kill-signal=SIGINT -consul-retry -consul-retry-attempts=0 -consul-retry-backoff=250ms -consul-retry-max-backoff=0 -template="${vector_service_discovery_template_path}:${vector_service_discovery_configuration_path}"
 ExecReload=/bin/kill -HUP \$MAINPID
@@ -890,11 +891,12 @@ EOF
     cat <<'EOF'
 {{- with node -}}
 {{- range .Services -}}
-{{- if and (index .Meta "prometheus_endpoints") (.Service | regexMatch "-sidecar-proxy" | not) -}}
+{{- if and (.Service | regexMatch "-sidecar-proxy" | not) (index .Meta "prometheus_endpoints") -}}
 {{- $service := . -}}
-{{- $value :=  sprig_compact (sprig_uniq (.Meta.prometheus_endpoints | parseJSON)) -}}
+{{- $value := sprig_compact (sprig_uniq (.Meta.prometheus_endpoints | parseJSON)) -}}
 {{- range $value -}}
-{{- scratch.MapSet "endpoints" . $service -}}
+{{- $endpoint := . | sprig_replace "SERVICE_ADDRESS" $service.Address | sprig_replace "SERVICE_PORT" ($service.Port | sprig_toString) | sprig_replace "SERVICE_ID" $service.ID -}}
+{{- scratch.MapSet "endpoints" $endpoint $service -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
