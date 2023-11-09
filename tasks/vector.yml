@@ -77,6 +77,30 @@
 - name: fix vector service
   ansible.builtin.lineinfile:
     path: /usr/lib/systemd/system/vector.service
+    regexp: '^ExecStartPre='
+    line: "ExecStartPre=/usr/bin/vector validate --config-toml /etc/vector/vector.toml"
+    insertafter: '^Group='
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - observability daemon-reload
+
+- name: fix vector service
+  ansible.builtin.lineinfile:
+    path: /usr/lib/systemd/system/vector.service
+    regexp: '^ExecReload=/usr/bin/vector'
+    line: "ExecReload=/usr/bin/vector validate --config-toml /etc/vector/vector.toml"
+    insertafter: '^Group='
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - observability daemon-reload
+
+- name: fix vector service
+  ansible.builtin.lineinfile:
+    path: /usr/lib/systemd/system/vector.service
     regexp: '^Restart='
     line: "Restart=on-failure"
     insertafter: '^ExecStartPre='
