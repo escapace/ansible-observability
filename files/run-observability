@@ -446,6 +446,330 @@ inputs = [${vector_sources_list}]
 [transforms.intermediate-logs-enrich]
 type = "remap"
 source = '''
+value = .
+. = {}
+
+# The wallclock time (CLOCK_REALTIME) at the point in time the entry was
+# received by the journal, in microseconds since the epoch UTC, formatted as a
+# decimal string. This has different properties from
+# "_SOURCE_REALTIME_TIMESTAMP=", as it is usually a bit later but more likely to
+# be monotonic.
+
+if exists(value.__REALTIME_TIMESTAMP) {
+  .timestamp = from_unix_timestamp!(to_int!(value.__REALTIME_TIMESTAMP), unit: "microseconds")
+}
+
+# The earliest trusted timestamp of the message, if any is known that is
+# different from the reception time of the journal. This is the time in
+# microseconds since the epoch UTC, formatted as a decimal string.
+
+if exists(value._SOURCE_REALTIME_TIMESTAMP) {
+  .timestamp = from_unix_timestamp!(to_int!(value._SOURCE_REALTIME_TIMESTAMP), unit: "microseconds")
+}
+
+# The name, the executable path, and the command line of the process the
+# journal entry originates from.
+
+if exists(value._COMM) {
+  if (!exists(.process)) {
+    .process = {}
+  }
+
+  .process.name = value._COMM
+}
+
+if exists(value._EXE) {
+  if (!exists(.process)) {
+    .process = {}
+  }
+
+  .process.executable = value._EXE
+}
+
+if exists(value._CMDLINE) {
+  if (!exists(.process)) {
+    .process = {}
+  }
+
+  .process.command = value._CMDLINE
+}
+
+# The process, user, and group ID of the process the journal entry originates
+# from formatted as a decimal string. Note that entries obtained via "stdout"
+# or "stderr" of forked processes will contain credentials valid for a parent
+# process (that initiated the connection to systemd-journald).
+
+if exists(value._UID) {
+  if (!exists(.process)) {
+    .process = {}
+  }
+
+  .process.uid = to_int!(value._UID)
+}
+
+if exists(value._GID) {
+  if (!exists(.process)) {
+    .process = {}
+  }
+
+  .process.gid = to_int!(value._GID)
+}
+
+if exists(value._PID) {
+  if (!exists(.process)) {
+    .process = {}
+  }
+
+  .process.pid = to_int!(value._PID)
+}
+
+# The SELinux security context (label) of the process the journal entry originates from.
+
+if exists(value._SELINUX_CONTEXT) {
+  if (!exists(.process)) {
+    .process = {}
+  }
+
+  .process.seliux_context = value._SELINUX_CONTEXT
+}
+
+
+# The effective capabilities(7) of the process the journal entry originates
+# from.
+
+# if exists(value._CAP_EFFECTIVE) {
+#   if (!exists(.process)) {
+#     .process = {}
+#   }
+#
+#   .process.capabilities = value._CAP_EFFECTIVE
+# }
+
+# The session and login UID of the process the journal entry originates from,
+# as maintained by the kernel audit subsystem.
+
+# if exists(value._AUDIT_SESSION) {
+#   if (!exists(.journal.audit)) {
+#     .journal.audit = {}
+#   }
+#
+#   .journal.audit.session = value._AUDIT_SESSION
+# }
+#
+# if exists(value._AUDIT_LOGINUID) {
+#   if (!exists(.journal.audit)) {
+#     .journal.audit = {}
+#   }
+#
+#   .journal.audit.login_uid = value._AUDIT_LOGINUID
+# }
+
+# The control group path in the systemd hierarchy, the systemd slice unit name,
+# the systemd unit name, the unit name in the systemd user manager (if any),
+# the systemd session ID (if any), and the owner UID of the systemd user unit
+# or systemd session (if any) of the process the journal entry originates from.
+
+if exists(value._SYSTEMD_CGROUP) {
+  if (!exists(.systemd)) {
+    .systemd = {}
+  }
+
+  .systemd.cgroup = value._SYSTEMD_CGROUP
+}
+
+if exists(value._SYSTEMD_SLICE) {
+  if (!exists(.systemd)) {
+    .systemd = {}
+  }
+
+  .systemd.slice = value._SYSTEMD_SLICE
+}
+
+if exists(value._SYSTEMD_UNIT) {
+  if (!exists(.systemd)) {
+    .systemd = {}
+  }
+
+  .systemd.unit = value._SYSTEMD_UNIT
+}
+
+if exists(value._SYSTEMD_USER_UNIT) {
+  if (!exists(.systemd)) {
+    .systemd = {}
+  }
+
+  .systemd.user_unit = value._SYSTEMD_USER_UNIT
+}
+
+if exists(value._SYSTEMD_USER_SLICE) {
+  if (!exists(.systemd)) {
+    .systemd = {}
+  }
+
+  .systemd.user_slice = value._SYSTEMD_USER_SLICE
+}
+
+if exists(value._SYSTEMD_SESSION) {
+  if (!exists(.systemd)) {
+    .systemd = {}
+  }
+
+  .systemd.session = value._SYSTEMD_SESSION
+}
+
+if exists(value._SYSTEMD_OWNER_UID) {
+  if (!exists(.systemd)) {
+    .systemd = {}
+  }
+
+  .systemd.owner_uid = value._SYSTEMD_OWNER_UID
+}
+
+# The invocation ID for the runtime cycle of the unit the message was generated
+# in, as available to processes of the unit in \$INVOCATION_ID (see
+# systemd.exec(5)).
+
+# if exists(value._SYSTEMD_INVOCATION_ID) {
+#   if (!exists(.systemd)) {
+#     .systemd = {}
+#   }
+#
+#   .systemd.invocation_id = value._SYSTEMD_INVOCATION_ID
+# }
+
+# The kernel boot ID for the boot the message was generated in, formatted as a
+# 128-bit hexadecimal string.
+
+# if exists(value._BOOT_ID) {
+#   .journal.boot_id = value._BOOT_ID
+# }
+
+# The machine ID of the originating host, as available in machine-id(5).
+
+# if exists(value._MACHINE_ID) {
+#   .journal.machine_id = value._MACHINE_ID
+# }
+
+# How the entry was received by the journal service.
+
+# if exists(value._TRANSPORT) {
+#   .journal.transport = value._TRANSPORT
+# }
+
+if exists(value.CONTAINER_ID_FULL) {
+  if (!exists(.container)) {
+    .container = {}
+  }
+
+  .container.id = value.CONTAINER_ID_FULL
+}
+
+if exists(value.CONTAINER_NAME) {
+  if (!exists(.container)) {
+    .container = {}
+  }
+
+  .container.name = value.CONTAINER_NAME
+}
+
+if exists(value.CONTAINER_TAG) {
+  if (!exists(.container)) {
+    .container = {}
+  }
+
+  .container.tag = value.CONTAINER_TAG
+}
+
+if exists(value.IMAGE_NAME) {
+  if (!exists(.container)) {
+    .container = {}
+  }
+
+  .container.image = value.IMAGE_NAME
+}
+
+
+if exists(value.COM_HASHICORP_NOMAD_ALLOC_ID) {
+  if (!exists(.nomad)) {
+    .nomad = {}
+  }
+
+  .nomad.alloc_id = value.COM_HASHICORP_NOMAD_ALLOC_ID
+}
+
+if exists(value.COM_HASHICORP_NOMAD_JOB_ID) {
+  if (!exists(.nomad)) {
+    .nomad = {}
+  }
+
+  .nomad.job_id = value.COM_HASHICORP_NOMAD_JOB_ID
+}
+
+if exists(value.COM_HASHICORP_NOMAD_JOB_NAME) {
+  if (!exists(.nomad)) {
+    .nomad = {}
+  }
+
+  .nomad.job_name = value.COM_HASHICORP_NOMAD_JOB_NAME
+}
+
+if exists(value.COM_HASHICORP_NOMAD_NAMESPACE) {
+  if (!exists(.nomad)) {
+    .nomad = {}
+  }
+
+  .nomad.namespace = value.COM_HASHICORP_NOMAD_NAMESPACE
+}
+
+if exists(value.COM_HASHICORP_NOMAD_NODE_ID) {
+  if (!exists(.nomad)) {
+    .nomad = {}
+  }
+
+  .nomad.node_id = value.COM_HASHICORP_NOMAD_NODE_ID
+}
+
+if exists(value.COM_HASHICORP_NOMAD_TASK_GROUP_NAME) {
+  if (!exists(.nomad)) {
+    .nomad = {}
+  }
+
+  .nomad.task_group_name = value.COM_HASHICORP_NOMAD_TASK_GROUP_NAME
+}
+
+if exists(value.COM_HASHICORP_NOMAD_TASK_NAME) {
+  if (!exists(.nomad)) {
+    .nomad = {}
+  }
+
+  .nomad.task_name = value.COM_HASHICORP_NOMAD_TASK_NAME
+}
+
+# The human-readable message string for this entry. This is supposed to be the
+# primary text shown to the user.
+
+if exists(value.message) && is_string(value.message) {
+  if (is_json!(value.message)) {
+    . = merge!(parse_json!(value.message), ., deep: true)
+  } else {
+    .message = value.message
+  }
+}
+
+.priority = compact([.priority, value.PRIORITY])[0]
+
+# A priority value between 0 ("emerg") and 7 ("debug") formatted as a decimal
+# string. This field is compatible with syslog's priority concept.
+if is_string(.priority) {
+  .priority = to_int!(.priority)
+  .priority_keyword = to_syslog_level!(.priority)
+} else if (is_integer(.priority)) {
+  .priority_keyword = to_syslog_level!(.priority)
+} else {
+  del(.priority)
+  del(.priority_keyword)
+}
+
 .region = get_env_var!("EC2_INSTANCE_REGION")
 .instance_id = get_env_var!("EC2_INSTANCE_ID")
 .instance_type = get_env_var!("EC2_INSTANCE_TYPE")
