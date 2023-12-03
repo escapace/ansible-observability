@@ -51,7 +51,9 @@ function wrap() {
     fi
 
     for line in "${lines[@]}"; do
+      # shellcheck disable=SC1073,SC2295
       option="${line%%$sep*}"
+      # shellcheck disable=SC1073,SC2295
       description="${line#*$sep}"
 
       echo "${option}"
@@ -81,7 +83,8 @@ function print_usage() {
     echo -e "--enable-nomad|Collect nomad metrics."
     echo -e "--enable-service-discovery|Discover scrape targets running on this node."
     echo -e "--enable-vault|Collect vault metrics."
-    echo -e "--scrape-interval|The interval between scrapes, in seconds."
+    echo -e "--metrics-scrape-interval|The interval between scrapes, in seconds."
+    echo -e "--logs-sample-rate|The rate at which low priority logs are forwarded, for example 10 means 1 out of every 10 events are forwarded and the rest are dropped."
     echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
     echo -e "--tag|Tag vector logs and metrics. Repeat this option for additional tags."
   )"
@@ -169,12 +172,21 @@ function get_object_value() {
 }
 
 function write_vector_configuration() {
-  local -r enable_kresd="${1}"
-  local -r enable_consul="${2}"
-  local -r enable_nomad="${3}"
-  local -r enable_cloudflared="${4}"
-  local -r enable_esm="${5}"
-  local -r enable_vault="${6}"
+  local -r secrets_bucket_name="${1}"
+  local -r enable_kresd="${2}"
+  local -r enable_consul="${3}"
+  local -r enable_nomad="${4}"
+  local -r enable_cloudflared="${5}"
+  local -r enable_esm="${6}"
+  local -r enable_vault="${7}"
+
+  local logs_metadata_sample_exclude
+  local logs_metadata_transform
+  local metrics_metadata_filter
+
+  logs_metadata_sample_exclude="$(get_object_value "${secrets_bucket_name}" "${role}/telemetry/vector-logs-sample-exclude")"
+  logs_metadata_transform="$(get_object_value "${secrets_bucket_name}" "${role}/telemetry/vector-logs-remap")"
+  metrics_metadata_filter="$(get_object_value "${secrets_bucket_name}" "${role}/telemetry/vector-metrics-filter")"
 
   local -r vector_configuration_path="/etc/vector/vector.toml"
   local -r vector_telemetry_environment_path="/etc/systemd/system/vector.service.d/telemetry-environment.conf"
@@ -201,28 +213,28 @@ function write_vector_configuration() {
   local vector_configuration_cloudflared=""
   local vector_configuration_esm=""
   local vector_configuration_vault=""
-  local vector_sources_list_array=("\"metrics-amp-proxy\"" "\"metrics-node-exporter\"" "\"metrics-vector\"")
+  local vector_sources_list_array=("\"transform-metrics-amp-proxy\"" "\"transform-metrics-node-exporter\"" "\"transform-metrics-vector\"")
 
   if [[ "${enable_consul}" == "true" ]]; then
-    vector_sources_list_array+=("\"metrics-consul*\"")
+    vector_sources_list_array+=("\"transform-metrics-consul*\"")
 
     vector_configuration_consul=$(
       cat <<EOF
 
 ## CONSUL
 
-[sources.intermediate-metrics-consul]
+[sources.source-metrics-consul]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:8500/v1/agent/metrics?format=prometheus"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
+scrape_interval_secs = \${VECTOR_METRICS_SCRAPE_INTERVAL:-120}
 
-[sources.intermediate-metrics-consul.auth]
+[sources.source-metrics-consul.auth]
 token = "\${CONSUL_HTTP_TOKEN}"
 strategy = "bearer"
 
-[transforms.metrics-consul]
+[transforms.transform-metrics-consul]
 type = "remap"
-inputs = ["intermediate-metrics-consul"]
+inputs = ["source-metrics-consul"]
 source = '''
 .tags.service = "consul"
 .tags.tenant  = "infrastructure"
@@ -233,21 +245,21 @@ EOF
   fi
 
   if [[ "${enable_esm}" == "true" ]]; then
-    vector_sources_list_array+=("\"metrics-esm\"")
+    vector_sources_list_array+=("\"transform-metrics-esm\"")
 
     vector_configuration_esm=$(
       cat <<EOF
 
 ## esm
 
-[sources.intermediate-metrics-esm]
+[sources.source-metrics-esm]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:8559/metrics"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
+scrape_interval_secs = \${VECTOR_METRICS_SCRAPE_INTERVAL:-120}
 
-[transforms.metrics-esm]
+[transforms.transform-metrics-esm]
 type = "remap"
-inputs = ["intermediate-metrics-esm"]
+inputs = ["source-metrics-esm"]
 source = '''
 .tags.service = "esm"
 .tags.tenant  = "infrastructure"
@@ -258,21 +270,21 @@ EOF
   fi
 
   if [[ "${enable_kresd}" == "true" ]]; then
-    vector_sources_list_array+=("\"metrics-kresd\"")
+    vector_sources_list_array+=("\"transform-metrics-kresd\"")
 
     vector_configuration_kresd=$(
       cat <<EOF
 
 ## KRESD
 
-[sources.intermediate-metrics-kresd]
+[sources.source-metrics-kresd]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:8453/metrics"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
+scrape_interval_secs = \${VECTOR_METRICS_SCRAPE_INTERVAL:-120}
 
-[transforms.metrics-kresd]
+[transforms.transform-metrics-kresd]
 type = "remap"
-inputs = ["intermediate-metrics-kresd"]
+inputs = ["source-metrics-kresd"]
 source = '''
 .tags.service = "kresd"
 .tags.tenant  = "infrastructure"
@@ -283,22 +295,22 @@ EOF
   fi
 
   if [[ "${enable_nomad}" == "true" ]]; then
-    vector_sources_list_array+=("\"metrics-nomad\"")
+    vector_sources_list_array+=("\"transform-metrics-nomad\"")
 
     vector_configuration_nomad=$(
       cat <<EOF
 
 ## NOMAD
 
-[sources.intermediate-metrics-nomad]
+[sources.source-metrics-nomad]
 type = "prometheus_scrape"
 # TODO: vector fails tls verification with [::1]
 endpoints = ["https://localhost:4646/v1/metrics?format=prometheus"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
+scrape_interval_secs = \${VECTOR_METRICS_SCRAPE_INTERVAL:-120}
 
-[transforms.metrics-nomad]
+[transforms.transform-metrics-nomad]
 type = "remap"
-inputs = ["intermediate-metrics-nomad"]
+inputs = ["source-metrics-nomad"]
 source = '''
 .tags.service = "nomad"
 .tags.tenant  = "infrastructure"
@@ -309,21 +321,21 @@ EOF
   fi
 
   if [[ "${enable_cloudflared}" == "true" ]]; then
-    vector_sources_list_array+=("\"metrics-cloudflared\"")
+    vector_sources_list_array+=("\"transform-metrics-cloudflared\"")
 
     vector_configuration_cloudflared=$(
       cat <<EOF
 
 ## cloudflared
 
-[sources.intermediate-metrics-cloudflared]
+[sources.source-metrics-cloudflared]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:9301/metrics"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
+scrape_interval_secs = \${VECTOR_METRICS_SCRAPE_INTERVAL:-120}
 
-[transforms.metrics-cloudflared]
+[transforms.transform-metrics-cloudflared]
 type = "remap"
-inputs = ["intermediate-metrics-cloudflared"]
+inputs = ["source-metrics-cloudflared"]
 source = '''
 .tags.service = "cloudflared"
 .tags.tenant  = "infrastructure"
@@ -334,21 +346,21 @@ EOF
   fi
 
   if [[ "${enable_vault}" == "true" ]]; then
-    vector_sources_list_array+=("\"metrics-vault\"")
+    vector_sources_list_array+=("\"transform-metrics-vault\"")
 
     vector_configuration_vault=$(
       cat <<EOF
 
 ## vault
 
-[sources.intermediate-metrics-vault]
+[sources.source-metrics-vault]
 type = "prometheus_scrape"
 endpoints = ["https://localhost:8200/v1/sys/metrics?format=prometheus"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
+scrape_interval_secs = \${VECTOR_METRICS_SCRAPE_INTERVAL:-120}
 
-[transforms.metrics-vault]
+[transforms.transform-metrics-vault]
 type = "remap"
-inputs = ["intermediate-metrics-vault"]
+inputs = ["source-metrics-vault"]
 source = '''
 .tags.service = "vault"
 .tags.tenant  = "infrastructure"
@@ -373,20 +385,20 @@ address = "127.0.0.1:8686"
 
 # JOURNALD
 
-[sources.logs-journald]
+[sources.source-logs-journald]
 type = "journald"
 current_boot_only = true
 
 ## NODE EXPORTER
 
-[sources.intermediate-metrics-node-exporter]
+[sources.source-metrics-node-exporter]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:9100/metrics"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
+scrape_interval_secs = \${VECTOR_METRICS_SCRAPE_INTERVAL:-120}
 
-[transforms.metrics-node-exporter]
+[transforms.transform-metrics-node-exporter]
 type = "remap"
-inputs = ["intermediate-metrics-node-exporter"]
+inputs = ["source-metrics-node-exporter"]
 source = '''
 .tags.service = "node-exporter"
 .tags.tenant  = "infrastructure"
@@ -394,13 +406,13 @@ source = '''
 
 ## VECTOR
 
-[sources.intermediate-metrics-vector]
+[sources.source-metrics-vector]
 type = "internal_metrics"
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
+scrape_interval_secs = \${VECTOR_METRICS_SCRAPE_INTERVAL:-120}
 
-[transforms.metrics-vector]
+[transforms.transform-metrics-vector]
 type = "remap"
-inputs = ["intermediate-metrics-vector"]
+inputs = ["source-metrics-vector"]
 source = '''
 .tags.service = "vector"
 .tags.tenant  = "infrastructure"
@@ -408,14 +420,14 @@ source = '''
 
 ## AMP-PROXY
 
-[sources.intermediate-metrics-amp-proxy]
+[sources.source-metrics-amp-proxy]
 type = "prometheus_scrape"
 endpoints = ["http://[::1]:9901/stats/prometheus"]
-scrape_interval_secs = \${VECTOR_SCRAPE_INTERVAL:-120}
+scrape_interval_secs = \${VECTOR_METRICS_SCRAPE_INTERVAL:-120}
 
-[transforms.metrics-amp-proxy]
+[transforms.transform-metrics-amp-proxy]
 type = "remap"
-inputs = ["intermediate-metrics-amp-proxy"]
+inputs = ["source-metrics-amp-proxy"]
 source = '''
 .tags.service = "amp-proxy"
 .tags.tenant  = "infrastructure"
@@ -430,8 +442,9 @@ ${vector_configuration_vault}
 
 ## ---
 
-[transforms.intermediate-metrics-enrich]
+[transforms.transform-metrics-remap]
 type = "remap"
+inputs = [${vector_sources_list}]
 source = '''
 .tags.region = get_env_var!("EC2_INSTANCE_REGION")
 .tags.instance_id = get_env_var!("EC2_INSTANCE_ID")
@@ -441,520 +454,48 @@ del(.tags.host)
 .tags.host = get_hostname!()
 ${metrics_metadata_tags}
 '''
-inputs = [${vector_sources_list}]
 
-[transforms.intermediate-logs-enrich]
+[transforms.transform-logs-remap]
 type = "remap"
+inputs = ["source-logs-journald"]
 source = '''
 value = .
-. = {}
-
-# The wallclock time (CLOCK_REALTIME) at the point in time the entry was
-# received by the journal, in microseconds since the epoch UTC, formatted as a
-# decimal string. This has different properties from
-# "_SOURCE_REALTIME_TIMESTAMP=", as it is usually a bit later but more likely to
-# be monotonic.
-
-if exists(value.__REALTIME_TIMESTAMP) {
-  .timestamp = from_unix_timestamp!(to_int!(value.__REALTIME_TIMESTAMP), unit: "microseconds")
-}
-
-# The earliest trusted timestamp of the message, if any is known that is
-# different from the reception time of the journal. This is the time in
-# microseconds since the epoch UTC, formatted as a decimal string.
-
-if exists(value._SOURCE_REALTIME_TIMESTAMP) {
-  .timestamp = from_unix_timestamp!(to_int!(value._SOURCE_REALTIME_TIMESTAMP), unit: "microseconds")
-}
-
-# The name, the executable path, and the command line of the process the
-# journal entry originates from.
-
-if exists(value._COMM) {
-  if (!exists(.process)) {
-    .process = {}
-  }
-
-  .process.name = value._COMM
-}
-
-if exists(value._EXE) {
-  if (!exists(.process)) {
-    .process = {}
-  }
-
-  .process.executable = value._EXE
-}
-
-if exists(value._CMDLINE) {
-  if (!exists(.process)) {
-    .process = {}
-  }
-
-  .process.command = value._CMDLINE
-}
-
-# The process, user, and group ID of the process the journal entry originates
-# from formatted as a decimal string. Note that entries obtained via "stdout"
-# or "stderr" of forked processes will contain credentials valid for a parent
-# process (that initiated the connection to systemd-journald).
-
-if exists(value._UID) {
-  if (!exists(.process)) {
-    .process = {}
-  }
-
-  .process.uid = to_int!(value._UID)
-}
-
-if exists(value._GID) {
-  if (!exists(.process)) {
-    .process = {}
-  }
-
-  .process.gid = to_int!(value._GID)
-}
-
-if exists(value._PID) {
-  if (!exists(.process)) {
-    .process = {}
-  }
-
-  .process.pid = to_int!(value._PID)
-}
-
-# The SELinux security context (label) of the process the journal entry originates from.
-
-if exists(value._SELINUX_CONTEXT) {
-  if (!exists(.process)) {
-    .process = {}
-  }
-
-  .process.seliux_context = value._SELINUX_CONTEXT
-}
-
-
-# The effective capabilities(7) of the process the journal entry originates
-# from.
-
-# if exists(value._CAP_EFFECTIVE) {
-#   if (!exists(.process)) {
-#     .process = {}
-#   }
-#
-#   .process.capabilities = value._CAP_EFFECTIVE
-# }
-
-# The session and login UID of the process the journal entry originates from,
-# as maintained by the kernel audit subsystem.
-
-# if exists(value._AUDIT_SESSION) {
-#   if (!exists(.journal.audit)) {
-#     .journal.audit = {}
-#   }
-#
-#   .journal.audit.session = value._AUDIT_SESSION
-# }
-#
-# if exists(value._AUDIT_LOGINUID) {
-#   if (!exists(.journal.audit)) {
-#     .journal.audit = {}
-#   }
-#
-#   .journal.audit.login_uid = value._AUDIT_LOGINUID
-# }
-
-# The control group path in the systemd hierarchy, the systemd slice unit name,
-# the systemd unit name, the unit name in the systemd user manager (if any),
-# the systemd session ID (if any), and the owner UID of the systemd user unit
-# or systemd session (if any) of the process the journal entry originates from.
-
-if exists(value._SYSTEMD_CGROUP) {
-  if (!exists(.systemd)) {
-    .systemd = {}
-  }
-
-  .systemd.cgroup = value._SYSTEMD_CGROUP
-}
-
-if exists(value._SYSTEMD_SLICE) {
-  if (!exists(.systemd)) {
-    .systemd = {}
-  }
-
-  .systemd.slice = value._SYSTEMD_SLICE
-}
-
-if exists(value._SYSTEMD_UNIT) {
-  if (!exists(.systemd)) {
-    .systemd = {}
-  }
-
-  .systemd.unit = value._SYSTEMD_UNIT
-}
-
-if exists(value._SYSTEMD_USER_UNIT) {
-  if (!exists(.systemd)) {
-    .systemd = {}
-  }
-
-  .systemd.user_unit = value._SYSTEMD_USER_UNIT
-}
-
-if exists(value._SYSTEMD_USER_SLICE) {
-  if (!exists(.systemd)) {
-    .systemd = {}
-  }
-
-  .systemd.user_slice = value._SYSTEMD_USER_SLICE
-}
-
-if exists(value._SYSTEMD_SESSION) {
-  if (!exists(.systemd)) {
-    .systemd = {}
-  }
-
-  .systemd.session = value._SYSTEMD_SESSION
-}
-
-if exists(value._SYSTEMD_OWNER_UID) {
-  if (!exists(.systemd)) {
-    .systemd = {}
-  }
-
-  .systemd.owner_uid = value._SYSTEMD_OWNER_UID
-}
-
-# The invocation ID for the runtime cycle of the unit the message was generated
-# in, as available to processes of the unit in \$INVOCATION_ID (see
-# systemd.exec(5)).
-
-# if exists(value._SYSTEMD_INVOCATION_ID) {
-#   if (!exists(.systemd)) {
-#     .systemd = {}
-#   }
-#
-#   .systemd.invocation_id = value._SYSTEMD_INVOCATION_ID
-# }
-
-# The kernel boot ID for the boot the message was generated in, formatted as a
-# 128-bit hexadecimal string.
-
-# if exists(value._BOOT_ID) {
-#   .journal.boot_id = value._BOOT_ID
-# }
-
-# The machine ID of the originating host, as available in machine-id(5).
-
-# if exists(value._MACHINE_ID) {
-#   .journal.machine_id = value._MACHINE_ID
-# }
-
-# How the entry was received by the journal service.
-
-# if exists(value._TRANSPORT) {
-#   .journal.transport = value._TRANSPORT
-# }
-
-if exists(value.CONTAINER_ID_FULL) {
-  if (!exists(.container)) {
-    .container = {}
-  }
-
-  .container.id = value.CONTAINER_ID_FULL
-}
-
-if exists(value.CONTAINER_NAME) {
-  if (!exists(.container)) {
-    .container = {}
-  }
-
-  .container.name = value.CONTAINER_NAME
-}
-
-if exists(value.CONTAINER_TAG) {
-  if (!exists(.container)) {
-    .container = {}
-  }
-
-  .container.tag = value.CONTAINER_TAG
-}
-
-if exists(value.IMAGE_NAME) {
-  if (!exists(.container)) {
-    .container = {}
-  }
-
-  .container.image = value.IMAGE_NAME
-}
-
-
-if exists(value.COM_HASHICORP_NOMAD_ALLOC_ID) {
-  if (!exists(.nomad)) {
-    .nomad = {}
-  }
-
-  .nomad.alloc_id = value.COM_HASHICORP_NOMAD_ALLOC_ID
-}
-
-if exists(value.COM_HASHICORP_NOMAD_JOB_ID) {
-  if (!exists(.nomad)) {
-    .nomad = {}
-  }
-
-  .nomad.job_id = value.COM_HASHICORP_NOMAD_JOB_ID
-}
-
-if exists(value.COM_HASHICORP_NOMAD_JOB_NAME) {
-  if (!exists(.nomad)) {
-    .nomad = {}
-  }
-
-  .nomad.job_name = value.COM_HASHICORP_NOMAD_JOB_NAME
-}
-
-if exists(value.COM_HASHICORP_NOMAD_NAMESPACE) {
-  if (!exists(.nomad)) {
-    .nomad = {}
-  }
-
-  .nomad.namespace = value.COM_HASHICORP_NOMAD_NAMESPACE
-}
-
-if exists(value.COM_HASHICORP_NOMAD_NODE_ID) {
-  if (!exists(.nomad)) {
-    .nomad = {}
-  }
-
-  .nomad.node_id = value.COM_HASHICORP_NOMAD_NODE_ID
-}
-
-if exists(value.COM_HASHICORP_NOMAD_TASK_GROUP_NAME) {
-  if (!exists(.nomad)) {
-    .nomad = {}
-  }
-
-  .nomad.task_group_name = value.COM_HASHICORP_NOMAD_TASK_GROUP_NAME
-}
-
-if exists(value.COM_HASHICORP_NOMAD_TASK_NAME) {
-  if (!exists(.nomad)) {
-    .nomad = {}
-  }
-
-  .nomad.task_name = value.COM_HASHICORP_NOMAD_TASK_NAME
-}
-
-# The human-readable message string for this entry. This is supposed to be the
-# primary text shown to the user.
-
-if exists(value.message) && is_string(value.message) {
-  if (is_json!(value.message)) {
-    . = merge!(parse_json!(value.message), ., deep: true)
-  } else {
-    .message = value.message
-  }
-}
-
-.priority = compact([.priority, value.PRIORITY])[0]
-
-# A priority value between 0 ("emerg") and 7 ("debug") formatted as a decimal
-# string. This field is compatible with syslog's priority concept.
-if is_string(.priority) {
-  .priority = to_int!(.priority)
-  .priority_keyword = to_syslog_level!(.priority)
-} else if (is_integer(.priority)) {
-  .priority_keyword = to_syslog_level!(.priority)
-} else {
-  del(.priority)
-  del(.priority_keyword)
-}
-
-.region = get_env_var!("EC2_INSTANCE_REGION")
-.instance_id = get_env_var!("EC2_INSTANCE_ID")
-.instance_type = get_env_var!("EC2_INSTANCE_TYPE")
-.availability_zone = get_env_var!("EC2_INSTANCE_AVAILABILITY_ZONE")
-del(.host)
-.host = get_hostname!()
+${logs_metadata_transform}
 ${logs_metadata_tags}
 '''
-inputs = [
-  "logs-journald"
-]
+
+[transforms.transform-logs-sample]
+type = "sample"
+inputs = ["transform-logs-remap"]
+rate = \${VECTOR_LOGS_SAMPLE_RATE:-10}
+exclude.type = "vrl"
+exclude.source = '''
+${logs_metadata_sample_exclude}
+'''
 
 ## ---
 
 # https://github.com/hashicorp/consul/blob/main/ui/packages/consul-ui/vendor/metrics-providers/prometheus.js
-[transforms.intermediate-metrics-filter]
+[transforms.transform-metrics-filter]
 type = "filter"
 inputs = [
-  "intermediate-metrics-enrich"
+  "transform-metrics-remap"
 ]
 condition.type = "vrl"
 condition.source = '''
-  if exists(.name) {
-    if (starts_with(.name, "envoy_") ?? false) {
-      match_any(.name, [
-        r'^envoy_cluster_upstream_cx_active',
-        r'^envoy_cluster_upstream_cx_connect_fail',
-        r'^envoy_cluster_upstream_cx_no_route',
-        r'^envoy_cluster_upstream_cx_rx_bytes_total',
-        r'^envoy_cluster_upstream_cx_total',
-        r'^envoy_cluster_upstream_cx_tx_bytes_total',
-        r'^envoy_cluster_upstream_rq_completed',
-        r'^envoy_cluster_upstream_rq_time',
-        r'^envoy_cluster_upstream_rq_total',
-        r'^envoy_cluster_upstream_rq_xx',
-        r'^envoy_http_downstream_cx_active',
-        r'^envoy_http_downstream_cx_rx_bytes_total',
-        r'^envoy_http_downstream_cx_total',
-        r'^envoy_http_downstream_cx_tx_bytes_total',
-        r'^envoy_http_downstream_rq_completed',
-        r'^envoy_http_downstream_rq_time',
-        r'^envoy_http_downstream_rq_total',
-        r'^envoy_http_downstream_rq_xx',
-        r'^envoy_listener_http_downstream_rq_xx',
-        r'^envoy_tcp_downstream_cx_connect_fail',
-        r'^envoy_tcp_downstream_cx_no_route',
-        r'^envoy_tcp_downstream_cx_rx_bytes_total',
-        r'^envoy_tcp_downstream_cx_total',
-        r'^envoy_tcp_downstream_cx_tx_bytes_total'
-      ]) ?? false
-    } else if (starts_with(.name, "process_") ?? false) {
-      match_any(.name, [
-        r'^process_cpu_seconds_total',
-        r'^process_max_fds',
-        r'^process_open_fds',
-        r'^process_resident_memory_bytes',
-        r'^process_start_time_seconds',
-        r'^process_virtual_memory_bytes',
-        r'^process_virtual_memory_max_bytes'
-      ]) ?? false
-    } else if (starts_with(.name, "go_") ?? false) {
-      match_any(.name, [
-        r'^go_gc_duration_seconds\$',
-        r'^go_gc_duration_seconds_sum',
-        r'^go_goroutines',
-        r'^go_memstats_alloc_bytes',
-        r'^go_memstats_alloc_bytes_total',
-        r'^go_memstats_heap_inuse_bytes',
-        r'^go_memstats_stack_inuse_bytes'
-      ]) ?? false
-    } else if (.tags.service == "node-exporter") {
-      match_any(.name, [
-        r'^node_context_switches_total',
-        r'^node_cpu_seconds_total',
-        r'^node_disk_discard_time_seconds_total',
-        r'^node_disk_discards_completed_total',
-        r'^node_disk_discards_merged_total',
-        r'^node_disk_io_now',
-        r'^node_disk_io_time_seconds_total',
-        r'^node_disk_io_time_weighted_seconds_total',
-        r'^node_disk_read_bytes_total',
-        r'^node_disk_read_time_seconds_total',
-        r'^node_disk_reads_completed_total',
-        r'^node_disk_reads_merged_total',
-        r'^node_disk_write_time_seconds_total',
-        r'^node_disk_writes_completed_total',
-        r'^node_disk_writes_merged_total',
-        r'^node_disk_written_bytes_total',
-        r'^node_entropy_available_bits',
-        r'^node_filesystem_avail_bytes',
-        r'^node_filesystem_device_error',
-        r'^node_filesystem_free_bytes',
-        r'^node_filesystem_readonly',
-        r'^node_filesystem_size_bytes',
-        r'^node_forks_total',
-        r'^node_intr_total',
-        r'^node_load1',
-        r'^node_load15',
-        r'^node_load5',
-        r'^node_memory_Buffers_bytes',
-        r'^node_memory_Cached_bytes',
-        r'^node_memory_HardwareCorrupted_bytes',
-        r'^node_memory_MemFree_bytes',
-        r'^node_memory_MemTotal_bytes',
-        r'^node_memory_PageTables_bytes',
-        r'^node_memory_SReclaimable_bytes',
-        r'^node_memory_Slab_bytes',
-        r'^node_memory_SwapCached_bytes',
-        r'^node_memory_SwapFree_bytes',
-        r'^node_memory_SwapTotal_bytes',
-        r'^node_network_receive_bytes_total',
-        r'^node_network_receive_drop_total',
-        r'^node_network_receive_errs_total',
-        r'^node_network_receive_packets_total',
-        r'^node_network_transmit_bytes_total',
-        r'^node_network_transmit_drop_total',
-        r'^node_network_transmit_errs_total',
-        r'^node_network_transmit_packets_total',
-        r'^node_processes_max_threads',
-        r'^node_processes_state',
-        r'^node_processes_threads',
-        r'^node_procs_blocked',
-        r'^node_procs_running',
-        r'^node_schedstat_running_seconds_total',
-        r'^node_schedstat_timeslices_total',
-        r'^node_schedstat_waiting_seconds_total',
-        r'^node_scrape_collector_duration_seconds',
-        r'^node_systemd_units',
-        r'^node_timex_estimated_error_seconds',
-        r'^node_timex_maxerror_seconds',
-        r'^node_timex_offset_seconds'
-      ]) ?? false
-    } else if (.tags.service == "kresd") {
-      match_any(.name, [
-        r'^kresd_answer_cached',
-        r'^kresd_answer_nodata',
-        r'^kresd_answer_noerror',
-        r'^kresd_answer_nxdomain',
-        r'^kresd_answer_servfail',
-        r'^kresd_answer_total',
-        r'^kresd_cache_usage_percent',
-        r'^kresd_latency',
-        r'^kresd_request_total'
-      ]) ?? false
-    } else if (.tags.service == "vector") {
-      match_any(.name, [
-        r'^component_received_events_total',
-        r'^component_sent_events_total',
-        r'^http_client_errors_total',
-        r'^http_client_rtt_seconds',
-        r'^utilization'
-      ]) ?? false
-    } else if (.tags.service == "cloudflared") {
-      match_any(.name, [
-        r'^cloudflared_tunnel_request_errors',
-        r'^cloudflared_tunnel_response_by_code',
-        r'^cloudflared_tunnel_server_locations',
-        r'^cloudflared_tunnel_total_requests',
-        r'^cloudflared_tunnel_tunnel_authenticate_success',
-        r'^cloudflared_tunnel_tunnel_register_fail',
-        r'^cloudflared_tunnel_tunnel_register_success',
-        r'^quic_client_latest_rtt',
-        r'^quic_client_min_rtt',
-        r'^quic_client_receive_packets',
-        r'^quic_client_sent_packets',
-        r'^quic_client_smoothed_rtt'
-      ]) ?? false
-    } else {
-      true
-    }
-  } else {
-    false
-  }
+${metrics_metadata_filter}
 '''
 
-[sinks.metrics-amp-sink]
+[sinks.sink-prometheus]
 type = "prometheus_remote_write"
 endpoint = "http://[::1]:9201/api/v1/remote_write"
 healthcheck = false
 request.concurrency = "adaptive"
 inputs = [
-  "intermediate-metrics-filter"
+  "transform-metrics-filter"
 ]
 
-[sinks.logs-cloudwatch-sink]
+[sinks.sink-cloudwatch]
 type = "aws_cloudwatch_logs"
 create_missing_group = true
 create_missing_stream = true
@@ -965,7 +506,7 @@ encoding.codec = "json"
 stream_name = "{{ instance_id }}"
 request.concurrency = "adaptive"
 inputs = [
-  "intermediate-logs-enrich"
+  "transform-logs-sample"
 ]
 
 EOF
@@ -1011,8 +552,9 @@ EOF
 function write_telemetry_environment() {
   local -r role="${1}"
   local -r secrets_bucket_name="${2}"
-  local -r scrape_interval="${3}"
-  local -r cloudwatch_group_name="${4}"
+  local -r metrics_scrape_interval="${3}"
+  local -r logs_sample_rate="${4}"
+  local -r cloudwatch_group_name="${5}"
 
   local -r telemetry_environment_file_path="${TELEMETRY_ENVIRONMENT_FILE_PATH}"
 
@@ -1031,7 +573,8 @@ function write_telemetry_environment() {
 AWS_ACCESS_KEY_ID=${aws_access_key_id}
 AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}
 AWS_CLOUDWATCH_GROUP_NAME=${cloudwatch_group_name}
-VECTOR_SCRAPE_INTERVAL=${scrape_interval}
+VECTOR_METRICS_SCRAPE_INTERVAL=${metrics_scrape_interval}
+VECTOR_LOGS_SAMPLE_RATE=${logs_sample_rate}
 CONSUL_HTTP_TOKEN=${consul_http_token}
 EOF
   )
@@ -1229,18 +772,18 @@ EOF
 {{ range sprig_keys (scratch.Get "endpoints") }}
 {{- $service := index (scratch.Get "endpoints") . -}}
 {{- $name := sprig_list (sprig_kebabcase $service.Service) (sprig_sha256sum .) | sprig_join "-" -}}
-{{- $scrape_interval := sprig_default "${VECTOR_SCRAPE_INTERVAL:-120}" $service.Meta.prometheus_scrape_interval -}}
+{{- $scrape_interval := sprig_default "${VECTOR_METRICS_SCRAPE_INTERVAL:-120}" $service.Meta.prometheus_scrape_interval -}}
 {{- $tags := sprig_default "{}" $service.Meta.prometheus_labels | parseJSON -}}
 # {{ $name }}
 
-[sources.intermediate-metrics-consul-{{ $name }}]
+[sources.source-metrics-consul-{{ $name }}]
 type = "prometheus_scrape"
 endpoints = [{{ . | toJSON }}]
 scrape_interval_secs = {{ $scrape_interval }}
 
-[transforms.metrics-consul-{{ $name }}]
+[transforms.transform-metrics-consul-{{ $name }}]
 type = "remap"
-inputs = ["intermediate-metrics-consul-{{ $name }}"]
+inputs = ["source-metrics-consul-{{ $name }}"]
 source = '''
 {{ range $key, $value := $tags -}}{{- if not (sprig_empty $value) -}}
 .tags.{{ sprig_snakecase $key }} = "{{ $value | sprig_toString }}"
@@ -1310,6 +853,7 @@ function run() {
   fi
 
   set -o allexport
+  # shellcheck disable=SC1091
   source "/etc/sysconfig/ec2-environment"
   set +o allexport
 
@@ -1317,7 +861,8 @@ function run() {
   local secrets_bucket_name=""
   local cloudwatch_group_name=""
   local amp_workspace_id=""
-  local scrape_interval="120"
+  local metrics_scrape_interval="120"
+  local logs_sample_rate="10"
   local enable_kresd="false"
   local enable_consul="false"
   local enable_esm="false"
@@ -1335,9 +880,14 @@ function run() {
       role="$2"
       shift
       ;;
-    --scrape-interval)
+    --metrics-scrape-interval)
       assert_not_empty "$key" "$2"
-      scrape_interval="$2"
+      metrics_scrape_interval="$2"
+      shift
+      ;;
+    --logs-sample-rate)
+      assert_not_empty "$key" "$2"
+      logs_sample_rate="$2"
       shift
       ;;
     --secrets-bucket-name)
@@ -1405,8 +955,14 @@ function run() {
     exit 1
   fi
 
-  if ! [[ "${scrape_interval}" =~ ^[0-9]+$ ]]; then
-    log_error "--scrape-interval must be a number."
+  if ! [[ "${metrics_scrape_interval}" =~ ^[0-9]+$ ]]; then
+    log_error "--metrics-scrape-interval must be a number."
+    print_usage
+    exit 1
+  fi
+
+  if ! [[ "${logs_sample_rate}" =~ ^[0-9]+$ ]]; then
+    log_error "--logs-sample-rate must be a number."
     print_usage
     exit 1
   fi
@@ -1424,13 +980,15 @@ function run() {
   write_telemetry_environment \
     "${role}" \
     "${secrets_bucket_name}" \
-    "${scrape_interval}" \
+    "${metrics_scrape_interval}" \
+    "${logs_sample_rate}" \
     "${cloudwatch_group_name}"
 
   write_amp_proxy_configuration \
     "${amp_workspace_id}"
 
   write_vector_configuration \
+    "${secrets_bucket_name}" \
     "${enable_kresd}" \
     "${enable_consul}" \
     "${enable_nomad}" \
