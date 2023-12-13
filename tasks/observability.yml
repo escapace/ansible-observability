@@ -6,10 +6,6 @@
   tags:
     - run-observability
 
-- ansible.builtin.include_tasks: amp-proxy.yml
-  tags:
-    - run-observability
-
 - name: create observability directories
   ansible.builtin.file:
     owner: root

@@ -16,6 +16,4 @@ galaxy_info:
     - observability
 
 dependencies:
-  - { role: escapace.envoy }
   - { role: escapace.aws_environment }
-  - { role: escapace.ferm }

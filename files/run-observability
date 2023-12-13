@@ -172,13 +172,14 @@ function get_object_value() {
 }
 
 function write_vector_configuration() {
-  local -r secrets_bucket_name="${1}"
-  local -r enable_kresd="${2}"
-  local -r enable_consul="${3}"
-  local -r enable_nomad="${4}"
-  local -r enable_cloudflared="${5}"
-  local -r enable_esm="${6}"
-  local -r enable_vault="${7}"
+  local -r amp_workspace_id="${1}"
+  local -r secrets_bucket_name="${2}"
+  local -r enable_kresd="${3}"
+  local -r enable_consul="${4}"
+  local -r enable_nomad="${5}"
+  local -r enable_cloudflared="${6}"
+  local -r enable_esm="${7}"
+  local -r enable_vault="${8}"
 
   local logs_metadata_sample_exclude
   local logs_metadata_transform
@@ -213,7 +214,7 @@ function write_vector_configuration() {
   local vector_configuration_cloudflared=""
   local vector_configuration_esm=""
   local vector_configuration_vault=""
-  local vector_sources_list_array=("\"transform-metrics-amp-proxy\"" "\"transform-metrics-node-exporter\"" "\"transform-metrics-vector\"")
+  local vector_sources_list_array=("\"transform-metrics-node-exporter\"" "\"transform-metrics-vector\"")
 
   if [[ "${enable_consul}" == "true" ]]; then
     vector_sources_list_array+=("\"transform-metrics-consul*\"")
@@ -418,21 +419,6 @@ source = '''
 .tags.tenant  = "infrastructure"
 '''
 
-## AMP-PROXY
-
-[sources.source-metrics-amp-proxy]
-type = "prometheus_scrape"
-endpoints = ["http://[::1]:9901/stats/prometheus"]
-scrape_interval_secs = \${VECTOR_METRICS_SCRAPE_INTERVAL:-120}
-
-[transforms.transform-metrics-amp-proxy]
-type = "remap"
-inputs = ["source-metrics-amp-proxy"]
-source = '''
-.tags.service = "amp-proxy"
-.tags.tenant  = "infrastructure"
-'''
-
 ${vector_configuration_kresd}
 ${vector_configuration_consul}
 ${vector_configuration_nomad}
@@ -488,7 +474,9 @@ ${metrics_metadata_filter}
 
 [sinks.sink-prometheus]
 type = "prometheus_remote_write"
-endpoint = "http://[::1]:9201/api/v1/remote_write"
+endpoint = "https://aps-workspaces.${EC2_INSTANCE_REGION}.amazonaws.com/workspaces/${amp_workspace_id}/api/v1/remote_write"
+auth.strategy = "aws"
+aws.region = "${EC2_INSTANCE_REGION}"
 healthcheck = false
 request.concurrency = "adaptive"
 inputs = [
@@ -587,137 +575,6 @@ EOF
   chmod 640 "${telemetry_environment_file_path}"
 
   setfacl -m u:vector:r "${telemetry_environment_file_path}"
-  setfacl -m u:amp-proxy:r "${telemetry_environment_file_path}"
-}
-
-function write_amp_proxy_configuration() {
-  local -r workspace_id="${1}"
-  local -r region="${EC2_INSTANCE_REGION}"
-
-  local -r amp_proxy_configuration_path="/opt/amp-proxy/config/default.yml"
-  local -r amp_proxy_service_configuration_path="/etc/systemd/system/amp-proxy.service"
-
-  local -r amp_proxy_configuration=$(
-    cat <<EOF
-admin:
-  address:
-    socket_address: { address: "::1", port_value: 9901 }
-
-static_resources:
-  listeners:
-    - address:
-        socket_address:
-          protocol: "TCP"
-          address: "::1"
-          port_value: 9201
-      filter_chains:
-        - filters:
-            - name: envoy.filters.network.http_connection_manager
-              typed_config:
-                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-                codec_type: AUTO
-                stat_prefix: amp-proxy
-                strip_any_host_port: true
-                route_config:
-                  name: local_route
-                  virtual_hosts:
-                    - name: amp-proxy
-                      domains: ['*']
-                      routes:
-                        - name: amp-proxy
-                          match:
-                            prefix: /
-                          route:
-                            cluster: amp-proxy
-                http_filters:
-                  - name: envoy.filters.http.lua
-                    typed_config:
-                      "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
-                      inline_code: |
-                        -- Called on the request path.
-                        function envoy_on_request(request_handle)
-                          local path = request_handle:headers():get(":path")
-                          request_handle:headers():replace(":path", "/workspaces/${workspace_id}" .. path)
-                        end
-                        -- Called on the response path.
-                        function envoy_on_response(response_handle)
-                        end
-                  - name: envoy.filters.http.aws_request_signing
-                    typed_config:
-                      "@type": type.googleapis.com/envoy.extensions.filters.http.aws_request_signing.v3.AwsRequestSigning
-                      service_name: aps
-                      region: ${region}
-                      host_rewrite: aps-workspaces.${region}.amazonaws.com
-                      match_excluded_headers:
-                        - prefix: x-envoy
-                        - prefix: x-forwarded
-                        - prefix: cf-
-                        - prefix: sec-
-                        - exact: upgrade-insecure-requests
-                        - exact: user-agent
-                        - exact: cookie
-                        - exact: priority
-                        - exact: cdn-loop
-                        - exact: x-amzn-trace-id
-
-                  - name: envoy.filters.http.router
-                    typed_config:
-                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
-  clusters:
-    - name: amp-proxy
-      connect_timeout: 0.25s
-      type: LOGICAL_DNS
-      lb_policy: ROUND_ROBIN
-      transport_socket:
-        name: envoy.transport_sockets.tls
-        typed_config:
-          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-      load_assignment:
-        cluster_name: amp-proxy
-        endpoints:
-          - lb_endpoints:
-              - endpoint:
-                  address:
-                    socket_address:
-                      address: aps-workspaces.${region}.amazonaws.com
-                      port_value: 443
-EOF
-  )
-
-  local -r amp_proxy_service_configuration=$(
-    cat <<EOF
-[Unit]
-Description=Amazon Managed Service for Prometheus Signing Proxy
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-User=amp-proxy
-Group=amp-proxy
-EnvironmentFile=${TELEMETRY_ENVIRONMENT_FILE_PATH}
-ExecStart=/usr/bin/envoy --use-dynamic-base-id --disable-hot-restart --log-level error --config-path "${amp_proxy_configuration_path}"
-KillMode=mixed
-LimitNOFILE=640000
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-WantedBy=vector.service
-
-EOF
-  )
-
-  log_info "Writing ${amp_proxy_configuration_path}"
-  log_info "Writing ${amp_proxy_service_configuration_path}"
-
-  echo -e "$amp_proxy_configuration" >"$amp_proxy_configuration_path"
-  chown amp-proxy:amp-proxy "${amp_proxy_configuration_path}"
-  chmod 644 "${amp_proxy_configuration_path}"
-
-  echo -e "$amp_proxy_service_configuration" >"$amp_proxy_service_configuration_path"
-  chown root:root "${amp_proxy_service_configuration_path}"
-  chmod 644 "${amp_proxy_service_configuration_path}"
 }
 
 function write_service_discovery_configuration() {
@@ -829,7 +686,7 @@ function configure_node_exporter() {
     '--collector.schedstat'
     '--collector.stat'
     '--collector.systemd'
-    '--collector.systemd.unit-include="(amp-proxy.service|chronyd.service|cloudflared.service|consul-bootstrap.service|consul-esm.service|consul-online.service|consul-snapshot.service|consul-terraform-sync.service|consul.service|containerd.service|docker.service|ec2-environment.service|ferm.service|kres-cache-gc.service|kresd@.+|node-exporter.service|nomad-bootstrap.service|nomad-online.service|nomad-snapshot.service|nomad.service|sshd.service|storage-setup.service|systemd-networkd.service|tailscaled.service|vault-bootstrap.service|vault-online.service|vault-snapshot.service|vault.service|vector-service-discovery.service|vector.service)"'
+    '--collector.systemd.unit-include="(chronyd.service|cloudflared.service|consul-bootstrap.service|consul-esm.service|consul-online.service|consul-snapshot.service|consul-terraform-sync.service|consul.service|containerd.service|docker.service|ec2-environment.service|ferm.service|kres-cache-gc.service|kresd@.+|node-exporter.service|nomad-bootstrap.service|nomad-online.service|nomad-snapshot.service|nomad.service|sshd.service|storage-setup.service|systemd-networkd.service|tailscaled.service|vault-bootstrap.service|vault-online.service|vault-snapshot.service|vault.service|vector-service-discovery.service|vector.service)"'
     '--collector.timex'
     '--collector.vmstat'
     '--web.listen-address="[::1]:9100"'
@@ -984,10 +841,8 @@ function run() {
     "${logs_sample_rate}" \
     "${cloudwatch_group_name}"
 
-  write_amp_proxy_configuration \
-    "${amp_workspace_id}"
-
   write_vector_configuration \
+    "${amp_workspace_id}" \
     "${secrets_bucket_name}" \
     "${enable_kresd}" \
     "${enable_consul}" \
@@ -1006,7 +861,6 @@ function run() {
 
   services+=("node-exporter.service")
   services+=("vector.service")
-  services+=("amp-proxy.service")
 
   if [[ "${enable_service_discovery}" == "true" ]]; then
     services+=("vector-service-discovery.service")

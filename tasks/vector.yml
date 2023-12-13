@@ -109,11 +109,3 @@
     mode: '0644'
   notify:
     - observability daemon-reload
-
-- name: allow vector metadata access
-  ansible.builtin.template:
-    src: templates/ferm-vector.conf.j2
-    dest: /etc/ferm/ferm.d/1020-vector.conf
-    owner: root
-    group: root
-    mode: 0600
