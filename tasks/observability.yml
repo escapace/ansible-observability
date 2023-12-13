@@ -1,6 +1,11 @@
 ---
 
-# TODO: remove rsyslog, logrotate &c.
+- name: install dependencies
+  ansible.builtin.dnf:
+    name:
+      - tar
+      - xz
+    state: present
 
 - ansible.builtin.include_tasks: vector.yml
   tags:
