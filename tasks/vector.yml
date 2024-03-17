@@ -1,5 +1,4 @@
 ---
-
 - name: install vector
   ansible.builtin.dnf:
     name: "{{ observability_vector_rpm }}"
@@ -12,7 +11,7 @@
     owner: root
     group: root
     state: directory
-    mode: 0755
+    mode: "0755"
 
 - name: fix /etc/vector ownership
   ansible.builtin.file:
@@ -20,7 +19,7 @@
     owner: vector
     group: vector
     state: directory
-    mode: 0750
+    mode: "0750"
 
 - name: delete vector example
   ansible.builtin.file:
@@ -38,7 +37,7 @@
     owner: vector
     group: vector
     state: directory
-    mode: 0750
+    mode: "0750"
 
 - name: vector systemd drop-in
   ansible.builtin.template:
@@ -46,66 +45,66 @@
     dest: /etc/systemd/system/vector.service.d/ec2-environment.conf
     owner: root
     group: root
-    mode: 0644
+    mode: "0644"
   notify:
     - observability daemon-reload
 
 - name: fix vector service
   ansible.builtin.lineinfile:
     path: /usr/lib/systemd/system/vector.service
-    regexp: '^Requires=network-online\.target'
-    line: "Wants=network-online.target"
-    insertafter: '^After=network-online.target'
+    regexp: ^Requires=network-online\.target
+    line: Wants=network-online.target
+    insertafter: ^After=network-online.target
     owner: root
     group: root
-    mode: '0644'
+    mode: "0644"
   notify:
     - observability daemon-reload
 
 - name: fix vector service
   ansible.builtin.lineinfile:
     path: /usr/lib/systemd/system/vector.service
-    regexp: '^ExecStart='
-    line: "ExecStart=/usr/bin/vector -qq --watch-config --config /etc/vector/vector.toml --config-dir /etc/vector/vector.d"
-    insertafter: '^ExecStartPre='
+    regexp: ^ExecStart=
+    line: ExecStart=/usr/bin/vector -qq --watch-config --config /etc/vector/vector.toml --config-dir /etc/vector/vector.d
+    insertafter: ^ExecStartPre=
     owner: root
     group: root
-    mode: '0644'
+    mode: "0644"
   notify:
     - observability daemon-reload
 
 - name: fix vector service
   ansible.builtin.lineinfile:
     path: /usr/lib/systemd/system/vector.service
-    regexp: '^ExecStartPre='
-    line: "ExecStartPre=/usr/bin/vector validate --config-toml /etc/vector/vector.toml"
-    insertafter: '^Group='
+    regexp: ^ExecStartPre=
+    line: ExecStartPre=/usr/bin/vector validate --config-toml /etc/vector/vector.toml
+    insertafter: ^Group=
     owner: root
     group: root
-    mode: '0644'
+    mode: "0644"
   notify:
     - observability daemon-reload
 
 - name: fix vector service
   ansible.builtin.lineinfile:
     path: /usr/lib/systemd/system/vector.service
-    regexp: '^ExecReload=/usr/bin/vector'
-    line: "ExecReload=/usr/bin/vector validate --config-toml /etc/vector/vector.toml"
-    insertafter: '^Group='
+    regexp: ^ExecReload=/usr/bin/vector
+    line: ExecReload=/usr/bin/vector validate --config-toml /etc/vector/vector.toml
+    insertafter: ^Group=
     owner: root
     group: root
-    mode: '0644'
+    mode: "0644"
   notify:
     - observability daemon-reload
 
 - name: fix vector service
   ansible.builtin.lineinfile:
     path: /usr/lib/systemd/system/vector.service
-    regexp: '^Restart='
-    line: "Restart=on-failure"
-    insertafter: '^ExecStartPre='
+    regexp: ^Restart=
+    line: Restart=on-failure
+    insertafter: ^ExecStartPre=
     owner: root
     group: root
-    mode: '0644'
+    mode: "0644"
   notify:
     - observability daemon-reload
