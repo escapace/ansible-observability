@@ -1,5 +1,4 @@
 ---
-
 - name: install dependencies
   ansible.builtin.dnf:
     name:
@@ -17,17 +16,17 @@
     group: root
     path: "{{ item }}"
     state: directory
-    mode: 0750
+    mode: "0750"
   with_items:
-    - "/opt/observability"
-    - "/opt/observability/bin"
-    - "/opt/observability/config"
+    - /opt/observability
+    - /opt/observability/bin
+    - /opt/observability/config
 
 - name: copy run-observability script
   ansible.builtin.copy:
     src: files/run-observability
-    dest: "/opt/observability/bin/run-observability"
-    mode: 0770
+    dest: /opt/observability/bin/run-observability
+    mode: "0770"
     owner: root
     group: root
   tags:
