@@ -1,12 +1,12 @@
 ---
 # tasks file for escapace.observability
 
-- ansible.builtin.include_tasks: observability.yml
+- ansible.builtin.include_tasks: observability.yaml
   when: ansible_os_family == "RedHat"
   tags:
     - run-observability
 
-- ansible.builtin.include_tasks: node-exporter.yml
+- ansible.builtin.include_tasks: node-exporter.yaml
   when: ansible_os_family == "RedHat"
   tags:
     - node-exporter

@@ -1,7 +1,7 @@
 ---
 - name: install vector
   ansible.builtin.dnf:
-    name: "{{ observability_vector_rpm }}"
+    name: '{{ observability_vector_rpm }}'
     disable_gpg_check: true
     state: present
 
@@ -11,7 +11,7 @@
     owner: root
     group: root
     state: directory
-    mode: "0755"
+    mode: '0755'
 
 - name: fix /etc/vector ownership
   ansible.builtin.file:
@@ -19,7 +19,7 @@
     owner: vector
     group: vector
     state: directory
-    mode: "0750"
+    mode: '0750'
 
 - name: delete vector example
   ansible.builtin.file:
@@ -37,7 +37,7 @@
     owner: vector
     group: vector
     state: directory
-    mode: "0750"
+    mode: '0750'
 
 - name: vector systemd drop-in
   ansible.builtin.template:
@@ -45,7 +45,7 @@
     dest: /etc/systemd/system/vector.service.d/ec2-environment.conf
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   notify:
     - observability daemon-reload
 
@@ -57,7 +57,7 @@
     insertafter: ^After=network-online.target
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   notify:
     - observability daemon-reload
 
@@ -69,7 +69,7 @@
     insertafter: ^ExecStartPre=
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   notify:
     - observability daemon-reload
 
@@ -81,7 +81,7 @@
     insertafter: ^Group=
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   notify:
     - observability daemon-reload
 
@@ -93,7 +93,7 @@
     insertafter: ^Group=
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   notify:
     - observability daemon-reload
 
@@ -105,6 +105,6 @@
     insertafter: ^ExecStartPre=
     owner: root
     group: root
-    mode: "0644"
+    mode: '0644'
   notify:
     - observability daemon-reload
