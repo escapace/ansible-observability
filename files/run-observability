@@ -522,8 +522,8 @@ After=vault-online.target
 Wants=vault-online.target
 After=nomad-online.target
 Wants=nomad-online.target
-After=kresd.target
-Wants=kresd.target
+After=nss-lookup.target
+Wants=nss-lookup.target
 After=node-exporter.service
 Wants=node-exporter.service
 
@@ -686,7 +686,7 @@ function configure_node_exporter() {
     '--collector.schedstat'
     '--collector.stat'
     '--collector.systemd'
-    '--collector.systemd.unit-include="(chronyd.service|cloudflared.service|consul-bootstrap.service|consul-esm.service|consul-online.service|consul-snapshot.service|consul-terraform-sync.service|consul.service|containerd.service|docker.service|ec2-environment.service|ferm.service|kres-cache-gc.service|kresd@.+|node-exporter.service|nomad-bootstrap.service|nomad-online.service|nomad-snapshot.service|nomad.service|sshd.service|storage-setup.service|systemd-networkd.service|tailscaled.service|vault-bootstrap.service|vault-online.service|vault-snapshot.service|vault.service|vector-service-discovery.service|vector.service)"'
+    '--collector.systemd.unit-include="(chronyd.service|cloudflared.service|consul-bootstrap.service|consul-esm.service|consul-online.service|consul-snapshot.service|consul-terraform-sync.service|consul.service|containerd.service|docker.service|ec2-environment.service|ferm.service|kres-cache-gc.service|knot-resolver.service|node-exporter.service|nomad-bootstrap.service|nomad-online.service|nomad-snapshot.service|nomad.service|sshd.service|storage-setup.service|systemd-networkd.service|tailscaled.service|vault-bootstrap.service|vault-online.service|vault-snapshot.service|vault.service|vector-service-discovery.service|vector.service)"'
     '--collector.timex'
     '--collector.vmstat'
     '--web.listen-address="[::1]:9100"'
