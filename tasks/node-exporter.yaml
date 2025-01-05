@@ -2,7 +2,7 @@
 - name: set kernel.perf_event_paranoid
   ansible.posix.sysctl:
     name: kernel.perf_event_paranoid
-    value: '2'
+    value: "2"
     state: present
   when: not observability_role_debug|bool
   tags:
@@ -29,9 +29,9 @@
   ansible.builtin.file:
     owner: node-exporter
     group: node-exporter
-    path: '{{ item }}'
+    path: "{{ item }}"
     state: directory
-    mode: '0755'
+    mode: "0755"
   with_items:
     - /opt/node-exporter
     - /opt/node-exporter/bin
@@ -42,9 +42,9 @@
   ansible.builtin.file:
     owner: node-exporter
     group: node-exporter
-    path: '{{ item }}'
+    path: "{{ item }}"
     state: directory
-    mode: '0750'
+    mode: "0750"
   with_items:
     - /opt/node-exporter/config
   tags:
@@ -66,10 +66,10 @@
   block:
     - name: download node-exporter
       ansible.builtin.get_url:
-        url: '{{ observability_node_exporter_archive_url }}'
+        url: "{{ observability_node_exporter_archive_url }}"
         dest: /tmp/{{ observability_node_exporter_archive }}
         checksum: sha256:{{ observability_node_exporter_archive_checksum_url }}
-        mode: '0660'
+        mode: "0660"
       changed_when: false
 
     - name: extract node-exporter
@@ -87,7 +87,7 @@
         remote_src: true
         owner: node-exporter
         group: node-exporter
-        mode: '0755'
+        mode: "0755"
 
     - name: remove node_exporter
       ansible.builtin.file:
@@ -104,17 +104,17 @@
         path: /opt/node-exporter/bin/node-exporter
         owner: node-exporter
         group: node-exporter
-        mode: '0755'
+        mode: "0755"
         setype: bin_t
         seuser: system_u
 
     - name: write version
       ansible.builtin.copy:
-        content: '{{ observability_node_exporter_archive }}'
+        content: "{{ observability_node_exporter_archive }}"
         dest: /opt/node-exporter/version
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
 
 - name: create a node-exporter symbolic link
   ansible.builtin.file:
@@ -122,7 +122,7 @@
     dest: /usr/bin/node-exporter
     owner: node-exporter
     group: node-exporter
-    mode: '0755'
+    mode: "0755"
     state: link
   tags:
     - node-exporter
@@ -133,7 +133,7 @@
     dest: /usr/lib/systemd/system/node-exporter.service
     owner: root
     group: root
-    mode: '0644'
+    mode: "0644"
   notify:
     - observability daemon-reload
   tags:
